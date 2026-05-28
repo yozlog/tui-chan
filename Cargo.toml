@@ -20,6 +20,8 @@ regex="1.4"
 voca_rs="1.13"
 clipboard = "0.5"
 open = "1"
+image = "0.24"
+
 
 [profile.dev]
 opt-level = 0

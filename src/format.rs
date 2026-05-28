@@ -8,6 +8,8 @@ use tui::widgets::ListItem;
 use voca_rs::strip;
 
 use crate::model::ThreadPost;
+use crate::image_cache::{ImageCache, ImageStatus};
+use crate::client::api::ContentUrlProvider;
 
 pub(crate) fn format_default(str: &str) -> String {
     format!(" {}", str)
@@ -17,12 +19,55 @@ pub(crate) fn format_html(str: &str) -> String {
     htmlescape::decode_html(str).unwrap()
 }
 
-pub(crate) fn format_post_short(post: &ThreadPost, no: usize, len: usize, area: Rect) -> ListItem {
-    format_post(post, format!("{}/{}", no, len), area, true)
+pub(crate) fn format_post_short<'a>(
+    post: &'a ThreadPost,
+    no: usize,
+    len: usize,
+    area: Rect,
+    image_cache: &ImageCache,
+    url_provider: &dyn ContentUrlProvider,
+    board: &str,
+    render_images: bool,
+    is_selected: bool,
+    bg_color: Color,
+) -> ListItem<'a> {
+    format_post(
+        post,
+        format!("{}/{}", no, len),
+        area,
+        true,
+        image_cache,
+        url_provider,
+        board,
+        render_images,
+        is_selected,
+        bg_color,
+    )
 }
 
-pub(crate) fn format_post_full(post: &ThreadPost, no: usize, area: Rect) -> ListItem {
-    format_post(post, format!("#{}", no), area, false)
+pub(crate) fn format_post_full<'a>(
+    post: &'a ThreadPost,
+    no: usize,
+    area: Rect,
+    image_cache: &ImageCache,
+    url_provider: &dyn ContentUrlProvider,
+    board: &str,
+    render_images: bool,
+    is_selected: bool,
+    bg_color: Color,
+) -> ListItem<'a> {
+    format_post(
+        post,
+        format!("#{}", no),
+        area,
+        false,
+        image_cache,
+        url_provider,
+        board,
+        render_images,
+        is_selected,
+        bg_color,
+    )
 }
 
 const CUT_MSG: &str = "[...]";
@@ -31,8 +76,60 @@ const CUT_MSG_LEN: usize = CUT_MSG.len();
 const LIMIT_SHORT: usize = 10;
 const LIMIT_LONG: usize = 60;
 
-fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListItem {
-    let mut lines = vec![Spans::from("")];
+fn format_post<'a>(
+    post: &'a ThreadPost,
+    no: String,
+    area: Rect,
+    short: bool,
+    image_cache: &ImageCache,
+    url_provider: &dyn ContentUrlProvider,
+    board: &str,
+    render_images: bool,
+    is_selected: bool,
+    bg_color: Color,
+) -> ListItem<'a> {
+    let mut area = area;
+    if render_images {
+        // Subtract 2 characters for the highlight symbol indentation
+        area.width = area.width.saturating_sub(2);
+    }
+
+    let url = if render_images && post.tim().is_some() && post.ext().is_some() {
+        Some(url_provider.url_file(
+            board,
+            format!(
+                "{}{}",
+                post.tim().as_ref().unwrap(),
+                post.ext().as_ref().unwrap()
+            ),
+        ))
+    } else {
+        None
+    };
+
+    let image_status = if let Some(ref u) = url {
+        image_cache.get_image(u)
+    } else {
+        ImageStatus::Failed
+    };
+
+    let has_image = match image_status {
+        ImageStatus::Loaded(_) | ImageStatus::Loading => true,
+        ImageStatus::Failed => false,
+    };
+
+    let thumb_w = 14;
+    let thumb_h = 7;
+
+    let text_area = if has_image {
+        let mut a = area;
+        a.width = a.width.saturating_sub(thumb_w + 3);
+        a
+    } else {
+        area
+    };
+
+    let mut text_lines = Vec::new();
     let mut header: Vec<Span> = vec![];
 
     if !post.sub().is_empty() {
@@ -66,10 +163,10 @@ fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListIt
         header.push(Span::styled(format_default("🔓"), Style::default()));
     }
 
-    lines.push(Spans::from(header));
+    text_lines.push(Spans::from(header));
 
     if post.filename().is_some() && post.ext().is_some() {
-        lines.push(Spans::from(Span::styled(
+        text_lines.push(Spans::from(Span::styled(
             format_default(&format!(
                 "{}{}",
                 post.filename().as_ref().unwrap(),
@@ -83,15 +180,15 @@ fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListIt
 
     let cut_com = format_post_contents(
         post.com(),
-        calc_width(area) as usize,
+        calc_width(text_area) as usize,
         if short { LIMIT_SHORT } else { LIMIT_LONG },
     );
     for span in cut_com {
-        lines.push(span);
+        text_lines.push(span);
     }
 
     if short {
-        lines.push(Spans::from(Span::styled(
+        text_lines.push(Spans::from(Span::styled(
             format_default(&format!("{} Replies", post.replies())),
             Style::default()
                 .fg(Color::Magenta)
@@ -99,8 +196,137 @@ fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListIt
         )));
     }
 
-    lines.push(Spans::from(""));
-    ListItem::new(Text::from(lines)).style(Style::default())
+    if !has_image {
+        let mut final_lines = Vec::new();
+
+        if is_selected {
+            let target_width = area.width.saturating_sub(2) as usize;
+            final_lines.push(Spans::from(Span::styled(" ".repeat(target_width), Style::default().bg(bg_color))));
+        } else {
+            final_lines.push(Spans::from(""));
+        }
+
+        for mut line in text_lines {
+            if is_selected {
+                for span in &mut line.0 {
+                    span.style = span.style.bg(bg_color);
+                }
+                let line_width: usize = line.0.iter().map(|s| s.content.chars().count()).sum();
+                let target_width = area.width.saturating_sub(2) as usize;
+                if target_width > line_width {
+                    let padding = target_width - line_width;
+                    line.0.push(Span::styled(" ".repeat(padding), Style::default().bg(bg_color)));
+                }
+            }
+            final_lines.push(line);
+        }
+
+        if is_selected {
+            let target_width = area.width.saturating_sub(2) as usize;
+            final_lines.push(Spans::from(Span::styled(" ".repeat(target_width), Style::default().bg(bg_color))));
+        } else {
+            final_lines.push(Spans::from(""));
+        }
+
+        ListItem::new(Text::from(final_lines)).style(Style::default())
+    } else {
+        let mut cached_spans = None;
+        if let ImageStatus::Loaded(ref cached_img) = image_status {
+            cached_spans = Some(cached_img.inline.clone());
+        }
+
+        let mut combined_lines = Vec::new();
+
+        if is_selected {
+            let target_width = area.width.saturating_sub(2) as usize;
+            combined_lines.push(Spans::from(Span::styled(" ".repeat(target_width), Style::default().bg(bg_color))));
+        } else {
+            combined_lines.push(Spans::from(""));
+        }
+
+        let text_len = text_lines.len();
+        let image_h = if let Some(spans) = &cached_spans {
+            spans.len()
+        } else {
+            thumb_h as usize
+        };
+        let max_lines = std::cmp::max(image_h, text_len);
+        for i in 0..max_lines {
+            let mut image_part = Vec::new();
+
+            if let Some(ref spans) = cached_spans {
+                if i < spans.len() {
+                    image_part.extend(spans[i].0.iter().cloned());
+                } else {
+                    if is_selected {
+                        image_part.push(Span::styled(" ".repeat(thumb_w as usize), Style::default().bg(bg_color)));
+                    } else {
+                        image_part.push(Span::raw(" ".repeat(thumb_w as usize)));
+                    }
+                }
+            } else {
+                if i < thumb_h as usize {
+                    image_part.push(Span::styled(
+                        "░".repeat(thumb_w as usize),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                } else {
+                    if is_selected {
+                        image_part.push(Span::styled(" ".repeat(thumb_w as usize), Style::default().bg(bg_color)));
+                    } else {
+                        image_part.push(Span::raw(" ".repeat(thumb_w as usize)));
+                    }
+                }
+            }
+
+            let mut text_part = Vec::new();
+            if i < text_len {
+                text_part.extend(text_lines[i].0.iter().cloned());
+            }
+
+            if is_selected {
+                for span in &mut text_part {
+                    span.style = span.style.bg(bg_color);
+                }
+            }
+
+            let image_part_len = image_part.len();
+            let mut row_spans = Vec::new();
+            row_spans.extend(image_part);
+
+            if is_selected {
+                row_spans.push(Span::styled("  ", Style::default().bg(bg_color)));
+            } else {
+                row_spans.push(Span::raw("  "));
+            }
+
+            row_spans.extend(text_part);
+
+            if is_selected {
+                let text_spans_width: usize = row_spans.iter()
+                    .skip(image_part_len + 1)
+                    .map(|span| span.content.chars().count())
+                    .sum();
+                let printed_width = thumb_w as usize + 2 + text_spans_width;
+                let target_width = area.width.saturating_sub(2) as usize;
+                if target_width > printed_width {
+                    let padding = target_width - printed_width;
+                    row_spans.push(Span::styled(" ".repeat(padding), Style::default().bg(bg_color)));
+                }
+            }
+
+            combined_lines.push(Spans::from(row_spans));
+        }
+
+        if is_selected {
+            let target_width = area.width.saturating_sub(2) as usize;
+            combined_lines.push(Spans::from(Span::styled(" ".repeat(target_width), Style::default().bg(bg_color))));
+        } else {
+            combined_lines.push(Spans::from(""));
+        }
+
+        ListItem::new(Text::from(combined_lines)).style(Style::default())
+    }
 }
 
 fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Spans> {

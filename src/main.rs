@@ -29,16 +29,26 @@ use crate::style::{SelectedField, StyleProvider};
 
 mod app;
 mod client;
+mod config;
 mod event;
 mod format;
+mod image_cache;
+mod image_renderer;
 mod keybinds;
 mod model;
 mod style;
+
+use crate::config::read_or_create_config_file;
+use crate::image_cache::ImageCache;
+
 
 fn main() -> Result<(), io::Error> {
     // Get keybinds from config file
     let keybinds = read_or_create_keybinds_file().expect("Failed to read keybinds file");
     let keybinds = Keybinds::parse_from_file(&keybinds).expect("Failed to parse keybinds file");
+
+    // Load settings from settings.conf file
+    let config = read_or_create_config_file().expect("Failed to read config file");
 
     let stdout = io::stdout().into_raw_mode()?;
     let stdout = MouseTerminal::from(stdout);
@@ -46,6 +56,8 @@ fn main() -> Result<(), io::Error> {
     let backend = TermionBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let runtime = Runtime::new()?;
+    let tokio_handle = runtime.handle().clone();
+    let image_cache = ImageCache::new(tokio_handle);
 
     let args: Vec<String> = env::args().collect();
     let chan: &str = if args.len() == 1 { "default" } else { &args[1] };
@@ -151,23 +163,66 @@ fn main() -> Result<(), io::Error> {
 
             f.render_stateful_widget(items, chunks[0], &mut app.boards.state);
 
+            let current_board = app.selected_board().board().to_string();
+
+            let media_url = if config.render_images && config.image_layout == crate::config::ImageLayout::Split {
+                match selected_field {
+                    SelectedField::BoardList => None,
+                    SelectedField::ThreadList => app.media_url_threads(api),
+                    SelectedField::Thread => app.media_url_thread(api),
+                }
+            } else {
+                None
+            };
+
+            let mut threads_text_rect = chunks[1];
+            let mut threads_image_rect = chunks[1];
+            let mut threads_image_rendered = false;
+            let mut cached_split_spans = None;
+
+            if config.render_images && config.image_layout == crate::config::ImageLayout::Split && selected_field == SelectedField::ThreadList {
+                if let Some(url) = &media_url {
+                    if let crate::image_cache::ImageStatus::Loaded(cached_img) = image_cache.get_image(url) {
+                        let split = Layout::default()
+                            .direction(Direction::Horizontal)
+                            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                            .split(chunks[1]);
+                        threads_text_rect = split[0];
+                        threads_image_rect = split[1];
+                        threads_image_rendered = true;
+                        cached_split_spans = Some(cached_img.split.clone());
+                    }
+                }
+            }
+
+            let selected_thread_idx = app.threads.state.selected().unwrap_or(0);
             let thread_len = app.threads.items.len();
+            let threads_limit = (chunks[1].height / 6).max(3) as isize;
             let threads: Vec<ListItem> = app
                 .threads
                 .items
                 .iter()
                 .enumerate()
                 .map(|(i, thread)| {
+                    let is_near = (i as isize - selected_thread_idx as isize).abs() <= threads_limit;
+                    let should_render_image = config.render_images && config.image_layout == crate::config::ImageLayout::Inline && is_near;
+                    let is_selected = config.render_images && config.image_layout == crate::config::ImageLayout::Inline && i == selected_thread_idx;
                     format_post_short(
                         thread.posts().first().unwrap(),
                         i + 1,
                         thread_len,
-                        chunks[1],
+                        threads_text_rect,
+                        &image_cache,
+                        api,
+                        &current_board,
+                        should_render_image,
+                        is_selected,
+                        *style_prov.highlight_color(),
                     )
                 })
                 .collect();
 
-            let threads = List::new(threads)
+            let threads_widget = List::new(threads)
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
@@ -178,20 +233,78 @@ fn main() -> Result<(), io::Error> {
                             thread_list.cur_page(),
                             thread_list.description(),
                         ))),
-                )
-                .highlight_style(Style::default().bg(*style_prov.highlight_color()));
+                );
 
-            f.render_stateful_widget(threads, chunks[1], &mut app.threads.state);
+            let threads_widget = if config.render_images && config.image_layout == crate::config::ImageLayout::Inline {
+                threads_widget
+                    .highlight_style(Style::default())
+                    .highlight_symbol("▶ ")
+            } else {
+                threads_widget
+                    .highlight_style(Style::default().bg(*style_prov.highlight_color()))
+            };
 
+            f.render_stateful_widget(threads_widget, threads_text_rect, &mut app.threads.state);
+
+            if threads_image_rendered {
+                if let Some(spans) = &cached_split_spans {
+                    let image_widget = Paragraph::new(spans.as_ref().clone())
+                        .block(
+                            Block::default()
+                                .borders(Borders::ALL)
+                                .border_style(Style::default().fg(Color::Cyan))
+                                .title(format_default(" Image Preview ")),
+                        );
+                    f.render_widget(image_widget, threads_image_rect);
+                }
+            }
+
+            let mut text_rect = chunks[2];
+            let mut image_rect = chunks[2];
+            let mut image_rendered = false;
+            let mut cached_split_spans_post = None;
+
+            if config.render_images && config.image_layout == crate::config::ImageLayout::Split && selected_field == SelectedField::Thread {
+                if let Some(url) = &media_url {
+                    if let crate::image_cache::ImageStatus::Loaded(cached_img) = image_cache.get_image(url) {
+                        let split = Layout::default()
+                            .direction(Direction::Horizontal)
+                            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                            .split(chunks[2]);
+                        text_rect = split[0];
+                        image_rect = split[1];
+                        image_rendered = true;
+                        cached_split_spans_post = Some(cached_img.split.clone());
+                    }
+                }
+            }
+
+            let selected_post_idx = app.thread.state.selected().unwrap_or(0);
+            let thread_limit = (chunks[2].height / 6).max(3) as isize;
             let thread: Vec<ListItem> = app
                 .thread
                 .items
                 .iter()
                 .enumerate()
-                .map(|(i, post)| format_post_full(post, i + 1, chunks[2]))
+                .map(|(i, post)| {
+                    let is_near = (i as isize - selected_post_idx as isize).abs() <= thread_limit;
+                    let should_render_image = config.render_images && config.image_layout == crate::config::ImageLayout::Inline && is_near;
+                    let is_selected = config.render_images && config.image_layout == crate::config::ImageLayout::Inline && i == selected_post_idx;
+                    format_post_full(
+                        post,
+                        i + 1,
+                        text_rect,
+                        &image_cache,
+                        api,
+                        &current_board,
+                        should_render_image,
+                        is_selected,
+                        *style_prov.highlight_color(),
+                    )
+                })
                 .collect();
 
-            let thread = List::new(thread)
+            let thread_widget = List::new(thread)
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
@@ -201,9 +314,30 @@ fn main() -> Result<(), io::Error> {
                             "Thread {}",
                             app.selected_thread_description()
                         ))),
-                )
-                .highlight_style(Style::default().bg(*style_prov.highlight_color()));
-            f.render_stateful_widget(thread, chunks[2], &mut app.thread.state);
+                );
+
+            let thread_widget = if config.render_images && config.image_layout == crate::config::ImageLayout::Inline {
+                thread_widget
+                    .highlight_style(Style::default())
+                    .highlight_symbol("▶ ")
+            } else {
+                thread_widget
+                    .highlight_style(Style::default().bg(*style_prov.highlight_color()))
+            };
+            f.render_stateful_widget(thread_widget, text_rect, &mut app.thread.state);
+
+            if image_rendered {
+                if let Some(spans) = &cached_split_spans_post {
+                    let image_widget = Paragraph::new(spans.as_ref().clone())
+                        .block(
+                            Block::default()
+                                .borders(Borders::ALL)
+                                .border_style(Style::default().fg(Color::Cyan))
+                                .title(format_default(" Image Preview ")),
+                        );
+                    f.render_widget(image_widget, image_rect);
+                }
+            }
         })?;
 
         match events.next().unwrap() {

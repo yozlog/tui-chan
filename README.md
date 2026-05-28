@@ -1,4 +1,5 @@
 # tui-chan
+
 An Imageboard Terminal User Interface.
 Currently supports only 4chan.
 
@@ -12,7 +13,7 @@ Then run it from the command line.
 tui-chan
 ```
 
-You may specify an imageboard name as an argument, the default one is `4chan`.
+An imageboard name may be specified as an argument, the default one is `4chan`.
 
 ## Building from source
 If your architecture is not supported by the pre-built binaries you can build the application from the source code yourself.
@@ -26,6 +27,15 @@ cargo install --path . # copies binary to /.cargo/bin/
 # to uninstall run
 cargo uninstall
 ```
+
+## Configuration
+
+Settings can be configured in `~/.config/tui-chan/settings.conf`
+
+- `render_images`: Master switch to enable terminal image previews (`true` or `false`). Defaults to `false`.
+- `image_layout`: Layout mode for image rendering. Evaluated only if `render_images` is set to `true`:
+  - `inline` (Default): Displays 4chan-style left thumbnails inside the thread and post lists. Automatically collapses vertical space to fit the actual thumbnail size and uses a clean pointer (`▶ `) to highlight selections.
+  - `split`: Splits the active panel horizontally and displays a larger image preview on the right (60% list, 40% preview).
 
 ## Controls
 
