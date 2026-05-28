@@ -165,7 +165,7 @@ fn main() -> Result<(), io::Error> {
 
             let current_board = app.selected_board().board().to_string();
 
-            let media_url = if config.render_images && config.image_layout == crate::config::ImageLayout::Split {
+            let media_url = if config.render_images && (config.image_layout == crate::config::ImageLayout::Split || config.image_layout == crate::config::ImageLayout::Hybrid) {
                 match selected_field {
                     SelectedField::BoardList => None,
                     SelectedField::ThreadList => app.media_url_threads(api),
@@ -180,7 +180,7 @@ fn main() -> Result<(), io::Error> {
             let mut threads_image_rendered = false;
             let mut cached_split_spans = None;
 
-            if config.render_images && config.image_layout == crate::config::ImageLayout::Split && selected_field == SelectedField::ThreadList {
+            if config.render_images && (config.image_layout == crate::config::ImageLayout::Split || config.image_layout == crate::config::ImageLayout::Hybrid) && selected_field == SelectedField::ThreadList {
                 if let Some(url) = &media_url {
                     if let crate::image_cache::ImageStatus::Loaded(cached_img) = image_cache.get_image(url) {
                         let split = Layout::default()
@@ -205,8 +205,8 @@ fn main() -> Result<(), io::Error> {
                 .enumerate()
                 .map(|(i, thread)| {
                     let is_near = (i as isize - selected_thread_idx as isize).abs() <= threads_limit;
-                    let should_render_image = config.render_images && config.image_layout == crate::config::ImageLayout::Inline && is_near;
-                    let is_selected = config.render_images && config.image_layout == crate::config::ImageLayout::Inline && i == selected_thread_idx;
+                    let should_render_image = config.render_images && (config.image_layout == crate::config::ImageLayout::Inline || config.image_layout == crate::config::ImageLayout::Hybrid) && is_near;
+                    let is_selected = config.render_images && (config.image_layout == crate::config::ImageLayout::Inline || config.image_layout == crate::config::ImageLayout::Hybrid) && i == selected_thread_idx;
                     format_post_short(
                         thread.posts().first().unwrap(),
                         i + 1,
@@ -235,7 +235,7 @@ fn main() -> Result<(), io::Error> {
                         ))),
                 );
 
-            let threads_widget = if config.render_images && config.image_layout == crate::config::ImageLayout::Inline {
+            let threads_widget = if config.render_images && (config.image_layout == crate::config::ImageLayout::Inline || config.image_layout == crate::config::ImageLayout::Hybrid) {
                 threads_widget
                     .highlight_style(Style::default())
                     .highlight_symbol("▶ ")
@@ -264,7 +264,7 @@ fn main() -> Result<(), io::Error> {
             let mut image_rendered = false;
             let mut cached_split_spans_post = None;
 
-            if config.render_images && config.image_layout == crate::config::ImageLayout::Split && selected_field == SelectedField::Thread {
+            if config.render_images && (config.image_layout == crate::config::ImageLayout::Split || config.image_layout == crate::config::ImageLayout::Hybrid) && selected_field == SelectedField::Thread {
                 if let Some(url) = &media_url {
                     if let crate::image_cache::ImageStatus::Loaded(cached_img) = image_cache.get_image(url) {
                         let split = Layout::default()
@@ -288,8 +288,8 @@ fn main() -> Result<(), io::Error> {
                 .enumerate()
                 .map(|(i, post)| {
                     let is_near = (i as isize - selected_post_idx as isize).abs() <= thread_limit;
-                    let should_render_image = config.render_images && config.image_layout == crate::config::ImageLayout::Inline && is_near;
-                    let is_selected = config.render_images && config.image_layout == crate::config::ImageLayout::Inline && i == selected_post_idx;
+                    let should_render_image = config.render_images && (config.image_layout == crate::config::ImageLayout::Inline || config.image_layout == crate::config::ImageLayout::Hybrid) && is_near;
+                    let is_selected = config.render_images && (config.image_layout == crate::config::ImageLayout::Inline || config.image_layout == crate::config::ImageLayout::Hybrid) && i == selected_post_idx;
                     format_post_full(
                         post,
                         i + 1,
@@ -316,7 +316,7 @@ fn main() -> Result<(), io::Error> {
                         ))),
                 );
 
-            let thread_widget = if config.render_images && config.image_layout == crate::config::ImageLayout::Inline {
+            let thread_widget = if config.render_images && (config.image_layout == crate::config::ImageLayout::Inline || config.image_layout == crate::config::ImageLayout::Hybrid) {
                 thread_widget
                     .highlight_style(Style::default())
                     .highlight_symbol("▶ ")

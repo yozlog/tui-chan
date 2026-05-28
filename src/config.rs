@@ -5,12 +5,14 @@ use std::{env, fs, io, path::Path};
 pub enum ImageLayout {
     Inline,
     Split,
+    Hybrid,
 }
 
 impl ImageLayout {
     pub fn from_str(s: &str) -> Self {
         match s.trim().to_lowercase().as_str() {
             "split" => ImageLayout::Split,
+            "hybrid" => ImageLayout::Hybrid,
             _ => ImageLayout::Inline,
         }
     }
@@ -20,6 +22,7 @@ impl ImageLayout {
         match self {
             ImageLayout::Inline => "inline",
             ImageLayout::Split => "split",
+            ImageLayout::Hybrid => "hybrid",
         }
     }
 }
@@ -79,6 +82,7 @@ impl Config {
         contents.push_str("# Allowed values:\n");
         contents.push_str("#   inline - 4chan-style left thumbnail next to post text\n");
         contents.push_str("#   split  - splits active panel horizontally with large preview on right\n");
+        contents.push_str("#   hybrid - show both inline thumbnails and split preview simultaneously\n");
         contents.push_str("image_layout=inline\n");
         contents
     }

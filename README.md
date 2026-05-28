@@ -36,6 +36,7 @@ Settings can be configured in `~/.config/tui-chan/settings.conf`
 - `image_layout`: Layout mode for image rendering. Evaluated only if `render_images` is set to `true`:
   - `inline` (Default): Displays 4chan-style left thumbnails inside the thread and post lists. Automatically collapses vertical space to fit the actual thumbnail size and uses a clean pointer (`▶ `) to highlight selections.
   - `split`: Splits the active panel horizontally and displays a larger image preview on the right (60% list, 40% preview).
+  - `hybrid`: Combines both inline list thumbnails and right-side split previews simultaneously.
 
 ## Controls
 
