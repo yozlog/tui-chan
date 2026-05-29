@@ -130,7 +130,7 @@ pub enum KeybindsError {
 type KeyMap<'a> = HashMap<&'a str, Key>;
 
 /// Parse keybinds file, as hashmap
-fn parse_keymap_file(file: &str) -> Result<KeyMap, KeybindsError> {
+fn parse_keymap_file(file: &str) -> Result<KeyMap<'_>, KeybindsError> {
     let mut keymap = KeyMap::new();
 
     // Loop lines

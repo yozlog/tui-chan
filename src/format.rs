@@ -326,7 +326,7 @@ fn format_post<'a>(
     }
 }
 
-fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Spans> {
+fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Spans<'_>> {
     let string = htmlescape::decode_html(string).unwrap();
     // Normalize various HTML break tags and carriage returns to standard newlines
     let string = string
