@@ -60,10 +60,10 @@ pub fn is_graphics_protocol_supported(renderer: &crate::config::ImageRenderer) -
             term_prog == "iTerm.app" || term_prog == "WezTerm"
         }
         crate::config::ImageRenderer::Kitty => {
-            term_prog == "Ghostty" 
-                || term_prog == "WezTerm" 
-                || term_prog == "iTerm.app" 
-                || has_kitty_id 
+            term_prog == "ghostty"
+                || term_prog == "WezTerm"
+                || term_prog == "iTerm.app"
+                || has_kitty_id
                 || term_type.contains("kitty")
         }
         _ => true,
