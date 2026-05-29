@@ -402,12 +402,13 @@ impl<T> ItemList<T> {
     pub(crate) fn advance_by(&mut self, steps: isize) {
         let selected = match self.state.selected() {
             Some(selected) => {
-                if selected as isize >= self.items.len() as isize - steps {
+                let next = selected as isize + steps;
+                if next >= self.items.len() as isize {
                     0_isize
-                } else if selected == 0 && steps < 0 {
+                } else if next < 0 {
                     self.items.len() as isize - 1
                 } else {
-                    selected as isize + steps
+                    next
                 }
             }
             None => 0,
