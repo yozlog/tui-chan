@@ -96,7 +96,8 @@ fn main() -> Result<(), io::Error> {
     let mut last_screen_share = app.calc_screen_share();
     let mut last_image_area: Option<tui::layout::Rect> = None;
     let mut last_image_url: Option<String> = None;
-    let mut vim_prefix = String::new();
+    let mut vim_prefix: u32 = 0;
+    let mut has_vim_prefix = false;
 
     loop {
         let scr_share = app.calc_screen_share();
@@ -644,8 +645,9 @@ fn main() -> Result<(), io::Error> {
 
         let event = events.next().unwrap();
         if let Event::Input(termion::event::Key::Char(c)) = event {
-            if c.is_ascii_digit() && (!vim_prefix.is_empty() || c != '0') {
-                vim_prefix.push(c);
+            if c.is_ascii_digit() && (has_vim_prefix || c != '0') {
+                vim_prefix = vim_prefix * 10 + (c as u32 - '0' as u32);
+                has_vim_prefix = true;
                 continue;
             }
         }
@@ -660,12 +662,13 @@ fn main() -> Result<(), io::Error> {
                     input = termion::event::Key::Ctrl('m');
                 }
 
-                let count = if vim_prefix.is_empty() {
-                    1
-                } else {
-                    let c = vim_prefix.parse::<isize>().unwrap_or(1);
-                    vim_prefix.clear();
+                let count = if has_vim_prefix {
+                    let c = vim_prefix as isize;
+                    vim_prefix = 0;
+                    has_vim_prefix = false;
                     c
+                } else {
+                    1
                 };
 
                 match input {
