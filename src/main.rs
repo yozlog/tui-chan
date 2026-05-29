@@ -30,7 +30,7 @@ use crate::client::api::{
 };
 use crate::event::{Event, Events, Key};
 use crate::keybinds::{read_or_create_keybinds_file, Keybinds};
-use crate::model::{Board, Thread, ThreadList, ThreadPost};
+use crate::model::{Board, ThreadList};
 use crate::style::{SelectedField, StyleProvider};
 
 mod app;
@@ -271,57 +271,75 @@ fn main() -> Result<(), io::Error> {
             let is_supported = crate::graphics::is_graphics_protocol_supported(&config.image_renderer);
 
             if is_supported {
-                if let Some(ref url) = active_image_url {
-                    if let crate::image_cache::ImageStatus::Loaded(cached_img) = image_cache.get_image(url, true) {
-                        if let Some(area) = active_image_area {
-                            let max_w = area.width as f64;
-                            let max_h = area.height as f64;
-                            let aspect = (cached_img.width as f64 / cached_img.height as f64) * 2.0;
-                            let (cols, rows) = if aspect > max_w / max_h {
-                                let fit_w = max_w;
-                                let fit_h = max_w / aspect;
-                                (fit_w as u16, fit_h as u16)
-                            } else {
-                                let fit_h = max_h;
-                                let fit_w = max_h * aspect;
-                                (fit_w as u16, fit_h as u16)
-                            };
-                            let cols = cols.max(1);
-                            let rows = rows.max(1);
-                            let offset_x = area.width.saturating_sub(cols) / 2;
-                            let offset_y = area.height.saturating_sub(rows) / 2;
-                            let mut print_x = area.x + offset_x;
-                            let print_y = area.y + offset_y;
-                            
-                            // iTerm2 Kitty offset correction:
-                            // iTerm2's Kitty graphics protocol implementation has a 1-column left offset.
-                            // Ghostty and WezTerm are perfectly centered.
-                            // We check TERM_PROGRAM to apply the shift ONLY when running inside iTerm2!
-                            if config.image_renderer == crate::config::ImageRenderer::Kitty {
-                                let is_iterm = std::env::var("TERM_PROGRAM")
-                                    .map(|val| val == "iTerm.app")
-                                    .unwrap_or(false);
-                                if is_iterm {
-                                    print_x += 1;
+                let current_url = active_image_url.clone();
+                let needs_redraw = last_image_url != current_url || last_image_area != active_image_area;
+
+                if needs_redraw {
+                    let mut drew = false;
+
+                    if let Some(ref url) = current_url {
+                        match image_cache.get_image(url, true) {
+                            crate::image_cache::ImageStatus::Loaded(cached_img) => {
+                                if let Some(area) = active_image_area {
+                                    let max_w = area.width as f64;
+                                    let max_h = area.height as f64;
+                                    let aspect = (cached_img.width as f64 / cached_img.height as f64) * 2.0;
+                                    let (cols, rows) = if aspect > max_w / max_h {
+                                        let fit_w = max_w;
+                                        let fit_h = max_w / aspect;
+                                        (fit_w as u16, fit_h as u16)
+                                    } else {
+                                        let fit_h = max_h;
+                                        let fit_w = max_h * aspect;
+                                        (fit_w as u16, fit_h as u16)
+                                    };
+                                    let cols = cols.max(1);
+                                    let rows = rows.max(1);
+                                    let offset_x = area.width.saturating_sub(cols) / 2;
+                                    let offset_y = area.height.saturating_sub(rows) / 2;
+                                    let mut print_x = area.x + offset_x;
+                                    let print_y = area.y + offset_y;
+                                    
+                                    // iTerm2 Kitty offset correction:
+                                    // iTerm2's Kitty graphics protocol implementation has a 1-column left offset.
+                                    // Ghostty and WezTerm are perfectly centered.
+                                    // We check TERM_PROGRAM to apply the shift ONLY when running inside iTerm2!
+                                    if config.image_renderer == crate::config::ImageRenderer::Kitty {
+                                        let is_iterm = std::env::var("TERM_PROGRAM")
+                                            .map(|val| val == "iTerm.app")
+                                            .unwrap_or(false);
+                                        if is_iterm {
+                                            print_x += 1;
+                                        }
+                                    }
+                                    
+                                    print!("\x1b[{};{}H", print_y + 1, print_x + 1);
+                                    if config.image_renderer == crate::config::ImageRenderer::Iterm2 {
+                                        print!("{}", crate::graphics::make_iterm2_sequence(&cached_img.base64_png, cols, rows));
+                                    } else if config.image_renderer == crate::config::ImageRenderer::Kitty {
+                                        print!("{}", crate::graphics::make_kitty_sequence(&cached_img.base64_png, cols, rows));
+                                    }
+                                    let _ = io::Write::flush(&mut io::stdout());
+                                    
+                                    last_image_area = active_image_area;
+                                    last_image_url = current_url.clone();
+                                    drew = true;
                                 }
+                            },
+                            crate::image_cache::ImageStatus::Failed => {
+                                last_image_url = current_url.clone();
+                                last_image_area = active_image_area;
+                                drew = true;
+                            },
+                            crate::image_cache::ImageStatus::Loading => {
+                                // Do nothing, let it check again next tick
                             }
-                            
-                            print!("\x1b[{};{}H", print_y + 1, print_x + 1);
-                            if config.image_renderer == crate::config::ImageRenderer::Iterm2 {
-                                print!("{}", crate::graphics::make_iterm2_sequence(&cached_img.base64_png, cols, rows));
-                            } else if config.image_renderer == crate::config::ImageRenderer::Kitty {
-                                print!("{}", crate::graphics::make_kitty_sequence(&cached_img.base64_png, cols, rows));
-                            }
-                            let _ = io::Write::flush(&mut io::stdout());
-                            
-                            last_image_area = Some(Rect {
-                                x: print_x,
-                                y: print_y,
-                                width: cols,
-                                height: rows,
-                            });
-                            last_image_url = Some(url.clone());
                         }
+                    }
+
+                    if !drew && current_url.is_none() {
+                        last_image_url = None;
+                        last_image_area = None;
                     }
                 }
             }
@@ -563,7 +581,6 @@ fn main() -> Result<(), io::Error> {
                 _ if input == keybinds.page_next => {
                     match selected_field {
                         SelectedField::ThreadList => {
-                            let mut threads: Vec<Thread> = vec![];
                             runtime.block_on(async {
                                 let result = client
                                     .get_threads(
@@ -572,11 +589,13 @@ fn main() -> Result<(), io::Error> {
                                     )
                                     .await;
                                 match result {
-                                    Ok(data) => threads = data,
+                                    Ok(data) => {
+                                        if !data.is_empty() {
+                                            app.fill_threads(data);
+                                        }
+                                    },
                                     Err(err) => eprintln!("{:#?}", err),
                                 };
-
-                                app.fill_threads(threads);
                             });
                         }
                         _ => {}
@@ -585,7 +604,6 @@ fn main() -> Result<(), io::Error> {
                 _ if input == keybinds.page_previous => {
                     match selected_field {
                         SelectedField::ThreadList => {
-                            let mut threads: Vec<Thread> = vec![];
                             runtime.block_on(async {
                                 let result = client
                                     .get_threads(
@@ -594,11 +612,13 @@ fn main() -> Result<(), io::Error> {
                                     )
                                     .await;
                                 match result {
-                                    Ok(data) => threads = data,
+                                    Ok(data) => {
+                                        if !data.is_empty() {
+                                            app.fill_threads(data);
+                                        }
+                                    },
                                     Err(err) => eprintln!("{:#?}", err),
                                 };
-
-                                app.fill_threads(threads);
                             });
                         }
                         _ => {}
@@ -607,7 +627,6 @@ fn main() -> Result<(), io::Error> {
                 _ if input == keybinds.reload => {
                     match selected_field {
                         SelectedField::ThreadList => {
-                            let mut threads: Vec<Thread> = vec![];
                             runtime.block_on(async {
                                 let result = client
                                     .get_threads(
@@ -616,16 +635,17 @@ fn main() -> Result<(), io::Error> {
                                     )
                                     .await;
                                 match result {
-                                    Ok(data) => threads = data,
+                                    Ok(data) => {
+                                        if !data.is_empty() {
+                                            app.fill_threads(data);
+                                            app.threads.advance_by(1);
+                                        }
+                                    },
                                     Err(err) => eprintln!("{:#?}", err),
                                 };
-
-                                app.fill_threads(threads);
-                                app.threads.advance_by(1);
                             });
                         }
                         SelectedField::Thread => {
-                            let mut thread: Vec<ThreadPost> = vec![];
                             runtime.block_on(async {
                                 let result = client
                                     .get_thread(
@@ -634,12 +654,14 @@ fn main() -> Result<(), io::Error> {
                                     )
                                     .await;
                                 match result {
-                                    Ok(data) => thread = data,
+                                    Ok(data) => {
+                                        if !data.is_empty() {
+                                            app.fill_thread(data);
+                                            app.thread.advance_by(1);
+                                        }
+                                    },
                                     Err(err) => eprintln!("{:#?}", err),
                                 };
-
-                                app.fill_thread(thread);
-                                app.thread.advance_by(1);
                             });
                         }
                         _ => {}
@@ -648,12 +670,8 @@ fn main() -> Result<(), io::Error> {
                 _ if input == keybinds.right => {
                     match selected_field {
                         SelectedField::BoardList => {
-                            selected_field = SelectedField::ThreadList;
-                            app.set_shown_thread_list(true);
-
                             thread_list = ThreadList::new();
                             thread_list.set_description(app.selected_board().meta_description());
-                            let mut threads: Vec<Thread> = vec![];
                             runtime.block_on(async {
                                 let result = client
                                     .get_threads(
@@ -662,20 +680,19 @@ fn main() -> Result<(), io::Error> {
                                     )
                                     .await;
                                 match result {
-                                    Ok(data) => threads = data,
+                                    Ok(data) => {
+                                        if !data.is_empty() {
+                                            selected_field = SelectedField::ThreadList;
+                                            app.set_shown_thread_list(true);
+                                            app.fill_threads(data);
+                                            app.threads.advance_by(1);
+                                        }
+                                    },
                                     Err(err) => eprintln!("{:#?}", err),
                                 };
-
-                                app.fill_threads(threads);
-                                app.threads.advance_by(1);
                             });
                         }
                         SelectedField::ThreadList => {
-                            selected_field = SelectedField::Thread;
-                            app.set_shown_thread(true);
-                            app.set_shown_board_list(false);
-
-                            let mut thread: Vec<ThreadPost> = vec![];
                             runtime.block_on(async {
                                 let result = client
                                     .get_thread(
@@ -684,12 +701,17 @@ fn main() -> Result<(), io::Error> {
                                     )
                                     .await;
                                 match result {
-                                    Ok(data) => thread = data,
+                                    Ok(data) => {
+                                        if !data.is_empty() {
+                                            selected_field = SelectedField::Thread;
+                                            app.set_shown_thread(true);
+                                            app.set_shown_board_list(false);
+                                            app.fill_thread(data);
+                                            app.thread.advance_by(1);
+                                        }
+                                    },
                                     Err(err) => eprintln!("{:#?}", err),
                                 };
-
-                                app.fill_thread(thread);
-                                app.thread.advance_by(1);
                             });
                         }
                         _ => {}

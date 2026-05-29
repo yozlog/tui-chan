@@ -16,7 +16,7 @@ use crate::client::api::ContentUrlProvider;
 
 
 pub(crate) fn format_html(str: &str) -> String {
-    htmlescape::decode_html(str).unwrap()
+    htmlescape::decode_html(str).unwrap_or_else(|_| str.to_string())
 }
 
 pub(crate) fn format_post_short<'a>(
@@ -131,7 +131,7 @@ fn format_post<'a>(
 
     if !post.sub().is_empty() {
         header.push(Span::styled(
-            format!(" {}", htmlescape::decode_html(post.sub()).unwrap()),
+            format!(" {}", format_html(post.sub())),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ));
     }
@@ -140,7 +140,7 @@ fn format_post<'a>(
     header.push(Span::styled(
         format!(
             "{} {} No.{}",
-            htmlescape::decode_html(post.name()).unwrap(),
+            format_html(post.name()),
             format_time(post.time()),
             post.no(),
         ),
@@ -339,7 +339,7 @@ fn strip_tags(input: &str) -> String {
 }
 
 fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Spans<'_>> {
-    let string = htmlescape::decode_html(string).unwrap();
+    let string = htmlescape::decode_html(string).unwrap_or_else(|_| string.to_string());
     // Normalize various HTML break tags and carriage returns to standard newlines
     let string = string
         .replace("\r\n", "\n")
