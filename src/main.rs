@@ -234,15 +234,6 @@ fn main() -> Result<(), io::Error> {
                 )
                 .split(helpbar_chunk[0]);
 
-            let selected_idx = app.boards.state.selected().unwrap_or(0);
-            let num_width = if config.board_relative_line_numbers {
-                let max_relative = app.boards.items.len().saturating_sub(1);
-                if max_relative >= 100 { 3 } else if max_relative >= 10 { 2 } else { 1 }
-            } else {
-                let max_absolute = app.boards.items.len();
-                if max_absolute >= 100 { 3 } else if max_absolute >= 10 { 2 } else { 1 }
-            };
-
             let items: Vec<ListItem> = app
                 .boards
                 .items
@@ -252,6 +243,13 @@ fn main() -> Result<(), io::Error> {
                     let mut spans = vec![];
 
                     if config.board_line_numbers {
+                        let selected_idx = app.boards.state.selected().unwrap_or(0);
+                        let max_num = if config.board_relative_line_numbers {
+                            app.boards.items.len().saturating_sub(1)
+                        } else {
+                            app.boards.items.len()
+                        };
+                        let num_width = if max_num >= 100 { 3 } else if max_num >= 10 { 2 } else { 1 };
                         let num = if config.board_relative_line_numbers {
                             (i as isize - selected_idx as isize).abs()
                         } else {
@@ -691,7 +689,7 @@ fn main() -> Result<(), io::Error> {
                         };
                     }
                     _ if input == keybinds.down => {
-                        app.advance(&selected_field, 1 * count);
+                        app.advance(&selected_field, count);
                     }
                     _ if input == keybinds.up => {
                         app.advance(&selected_field, -1 * count);
