@@ -157,23 +157,7 @@ fn main() -> Result<(), io::Error> {
 
         if url_changed {
             if config.render_images && config.image_renderer != crate::config::ImageRenderer::Unicode {
-                let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
-                let term_type = std::env::var("TERM").unwrap_or_default();
-                let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
-                
-                let is_supported = match config.image_renderer {
-                    crate::config::ImageRenderer::Iterm2 => {
-                        term_prog == "iTerm.app" || term_prog == "WezTerm"
-                    }
-                    crate::config::ImageRenderer::Kitty => {
-                        term_prog == "Ghostty" 
-                            || term_prog == "WezTerm" 
-                            || term_prog == "iTerm.app" 
-                            || has_kitty_id 
-                            || term_type.contains("kitty")
-                    }
-                    _ => true,
-                };
+                let is_supported = crate::graphics::is_graphics_protocol_supported(&config.image_renderer);
 
                 if current_image_url.is_none() && last_image_url.is_some() {
                     // Manually print spaces to erase the entire preview block (including border lines) 
@@ -918,23 +902,7 @@ fn main() -> Result<(), io::Error> {
                 }
                 _ if input == keybinds.toggle_image_previews => {
                     if config.render_images {
-                        let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
-                        let term_type = std::env::var("TERM").unwrap_or_default();
-                        let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
-                        
-                        let is_supported = match config.image_renderer {
-                            crate::config::ImageRenderer::Iterm2 => {
-                                term_prog == "iTerm.app" || term_prog == "WezTerm"
-                            }
-                            crate::config::ImageRenderer::Kitty => {
-                                term_prog == "Ghostty" 
-                                    || term_prog == "WezTerm" 
-                                    || term_prog == "iTerm.app" 
-                                    || has_kitty_id 
-                                    || term_type.contains("kitty")
-                            }
-                            _ => true,
-                        };
+                        let is_supported = crate::graphics::is_graphics_protocol_supported(&config.image_renderer);
 
                         if config.image_renderer == crate::config::ImageRenderer::Kitty && is_supported {
                             print!("{}", crate::graphics::make_kitty_clear_sequence());

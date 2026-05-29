@@ -48,3 +48,24 @@ pub fn make_kitty_sequence(base64_data: &str, cols: u16, rows: u16) -> String {
 pub fn make_kitty_clear_sequence() -> &'static str {
     "\x1b_Ga=d,d=a\x1b\\"
 }
+
+/// Checks if the current terminal supports the configured high-resolution graphics protocol
+pub fn is_graphics_protocol_supported(renderer: &crate::config::ImageRenderer) -> bool {
+    let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    let term_type = std::env::var("TERM").unwrap_or_default();
+    let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
+    
+    match renderer {
+        crate::config::ImageRenderer::Iterm2 => {
+            term_prog == "iTerm.app" || term_prog == "WezTerm"
+        }
+        crate::config::ImageRenderer::Kitty => {
+            term_prog == "Ghostty" 
+                || term_prog == "WezTerm" 
+                || term_prog == "iTerm.app" 
+                || has_kitty_id 
+                || term_type.contains("kitty")
+        }
+        _ => true,
+    }
+}
