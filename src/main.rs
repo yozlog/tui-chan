@@ -21,7 +21,7 @@ use crossterm::{
 };
 use tokio::runtime::Runtime;
 use tui::backend::CrosstermBackend;
-use tui::layout::{Constraint, Direction, Layout, Rect};
+use tui::layout::{Constraint, Direction, Layout};
 use tui::Terminal;
 
 use crate::app::App;

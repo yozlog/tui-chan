@@ -38,10 +38,31 @@ pub fn make_iterm2_sequence(base64_data: &str, cols: u16, rows: u16) -> String {
 
 /// Generates the Kitty graphics sequence (using quiet mode q=2 to avoid polluting stdin)
 pub fn make_kitty_sequence(base64_data: &str, cols: u16, rows: u16) -> String {
-    format!(
-        "\x1b_Ga=T,f=100,t=d,c={},r={},q=2;{}\x1b\\",
-        cols, rows, base64_data
-    )
+    let mut seq = String::new();
+    let chunk_size = 2048;
+    let chunks: Vec<&str> = base64_data
+        .as_bytes()
+        .chunks(chunk_size)
+        .map(|b| std::str::from_utf8(b).unwrap())
+        .collect();
+
+    if chunks.is_empty() {
+        return format!("\x1b_Ga=T,f=100,t=d,c={},r={},q=2,m=0;\x1b\\", cols, rows);
+    }
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        let m = if i == chunks.len() - 1 { 0 } else { 1 };
+        if i == 0 {
+            seq.push_str(&format!(
+                "\x1b_Ga=T,f=100,t=d,c={},r={},q=2,m={};{}\x1b\\",
+                cols, rows, m, chunk
+            ));
+        } else {
+            seq.push_str(&format!("\x1b_Gm={},q=2;{}\x1b\\", m, chunk));
+        }
+    }
+    
+    seq
 }
 
 /// Generates the escape sequence to clear all Kitty graphics
