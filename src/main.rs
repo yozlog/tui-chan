@@ -11,7 +11,7 @@ use termion::raw::IntoRawMode;
 use termion::screen::AlternateScreen;
 use tokio::runtime::Runtime;
 use tui::backend::TermionBackend;
-use tui::layout::{Constraint, Direction, Layout};
+use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
 use tui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
@@ -32,6 +32,7 @@ mod client;
 mod config;
 mod event;
 mod format;
+mod graphics;
 mod image_cache;
 mod image_renderer;
 mod keybinds;
@@ -50,6 +51,7 @@ fn main() -> Result<(), io::Error> {
     // Load settings from settings.conf file
     let config = read_or_create_config_file().expect("Failed to read config file");
 
+
     let stdout = io::stdout().into_raw_mode()?;
     let stdout = MouseTerminal::from(stdout);
     let stdout = AlternateScreen::from(stdout);
@@ -57,7 +59,8 @@ fn main() -> Result<(), io::Error> {
     let mut terminal = Terminal::new(backend)?;
     let runtime = Runtime::new()?;
     let tokio_handle = runtime.handle().clone();
-    let image_cache = ImageCache::new(tokio_handle);
+    let events = Events::new();
+    let image_cache = ImageCache::new(tokio_handle, events.tx());
 
     let args: Vec<String> = env::args().collect();
     let chan: &str = if args.len() == 1 { "default" } else { &args[1] };
@@ -71,7 +74,6 @@ fn main() -> Result<(), io::Error> {
     };
 
     let client = ChanClient::new(Client::new(), api.as_api());
-    let events = Events::new();
     let api: &dyn ContentUrlProvider = api.as_content();
 
     let mut boards: Vec<Board> = vec![];
@@ -90,8 +92,51 @@ fn main() -> Result<(), io::Error> {
     let mut thread_list = ThreadList::new();
     let style_prov = StyleProvider::new();
     let mut ctx: ClipboardContext = ClipboardProvider::new().unwrap();
+    let mut last_selected_field = selected_field;
+    let mut last_screen_share = app.calc_screen_share();
+    let mut last_image_area: Option<tui::layout::Rect> = None;
+    let mut last_image_url: Option<String> = None;
 
     loop {
+        let scr_share = app.calc_screen_share();
+        let layout_changed = last_selected_field != selected_field || last_screen_share != scr_share;
+        
+        if layout_changed {
+            if let Some(area) = last_image_area {
+                if config.render_images {
+                    if config.image_renderer == crate::config::ImageRenderer::Kitty {
+                        print!("{}", crate::graphics::make_kitty_clear_sequence());
+                        let _ = io::Write::flush(&mut io::stdout());
+                    } else if config.image_renderer == crate::config::ImageRenderer::Iterm2 {
+                        // Manually print spaces to stdout over the old image cells to bypass tui-rs virtual diffing
+                        for r in 0..area.height {
+                            print!("\x1b[{};{}H{}", area.y + r + 1, area.x + 1, " ".repeat(area.width as usize));
+                        }
+                        let _ = io::Write::flush(&mut io::stdout());
+                    }
+                }
+                let _ = terminal.clear();
+                last_image_area = None;
+                last_image_url = None;
+            }
+            last_selected_field = selected_field;
+            last_screen_share = scr_share;
+        }
+
+        if config.render_images {
+            let prefetch_url = match selected_field {
+                SelectedField::BoardList => None,
+                SelectedField::ThreadList => app.media_url_threads(api),
+                SelectedField::Thread => app.media_url_thread(api),
+            };
+            if let Some(url) = prefetch_url {
+                image_cache.get_image(&url, true);
+            }
+        }
+
+        let mut active_image_url: Option<String> = None;
+        let mut active_image_area: Option<tui::layout::Rect> = None;
+
         terminal.draw(|f| {
             let block_style = style_prov.default_from_selected_field(&selected_field);
             let scr_share = app.calc_screen_share();
@@ -180,17 +225,48 @@ fn main() -> Result<(), io::Error> {
             let mut threads_image_rendered = false;
             let mut cached_split_spans = None;
 
+            let mut image_load_failed = false;
+
             if config.render_images && (config.image_layout == crate::config::ImageLayout::Split || config.image_layout == crate::config::ImageLayout::Hybrid) && selected_field == SelectedField::ThreadList {
                 if let Some(url) = &media_url {
-                    if let crate::image_cache::ImageStatus::Loaded(cached_img) = image_cache.get_image(url) {
-                        let split = Layout::default()
-                            .direction(Direction::Horizontal)
-                            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
-                            .split(chunks[1]);
-                        threads_text_rect = split[0];
-                        threads_image_rect = split[1];
-                        threads_image_rendered = true;
-                        cached_split_spans = Some(cached_img.split.clone());
+                    threads_image_rendered = true;
+                    match image_cache.get_image(url, true) {
+                        crate::image_cache::ImageStatus::Loaded(cached_img) => {
+                            let split = Layout::default()
+                                .direction(Direction::Horizontal)
+                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                                .split(chunks[1]);
+                            threads_text_rect = split[0];
+                            threads_image_rect = split[1];
+                            if config.image_renderer == crate::config::ImageRenderer::Unicode {
+                                cached_split_spans = Some(cached_img.split.clone());
+                            } else {
+                                active_image_url = Some(url.clone());
+                                active_image_area = Some(Rect {
+                                    x: threads_image_rect.x + 1,
+                                    y: threads_image_rect.y + 1,
+                                    width: threads_image_rect.width.saturating_sub(2),
+                                    height: threads_image_rect.height.saturating_sub(2),
+                                });
+                            }
+                        }
+                        crate::image_cache::ImageStatus::Failed => {
+                            let split = Layout::default()
+                                .direction(Direction::Horizontal)
+                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                                .split(chunks[1]);
+                            threads_text_rect = split[0];
+                            threads_image_rect = split[1];
+                            image_load_failed = true;
+                        }
+                        crate::image_cache::ImageStatus::Loading => {
+                            let split = Layout::default()
+                                .direction(Direction::Horizontal)
+                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                                .split(chunks[1]);
+                            threads_text_rect = split[0];
+                            threads_image_rect = split[1];
+                        }
                     }
                 }
             }
@@ -247,16 +323,65 @@ fn main() -> Result<(), io::Error> {
             f.render_stateful_widget(threads_widget, threads_text_rect, &mut app.threads.state);
 
             if threads_image_rendered {
-                if let Some(spans) = &cached_split_spans {
-                    let image_widget = Paragraph::new(spans.as_ref().clone())
-                        .block(
-                            Block::default()
-                                .borders(Borders::ALL)
-                                .border_style(Style::default().fg(Color::Cyan))
-                                .title(format_default(" Image Preview ")),
-                        );
-                    f.render_widget(image_widget, threads_image_rect);
+                let image_widget = if config.image_renderer == crate::config::ImageRenderer::Unicode {
+                    if let Some(spans) = &cached_split_spans {
+                        Paragraph::new(spans.as_ref().clone())
+                    } else {
+                        Paragraph::new("")
+                    }
+                } else {
+                    // Fill the inner area of the preview block with spaces to assist in clearing the old image smoothly
+                    let inner_w = threads_image_rect.width.saturating_sub(2) as usize;
+                    let inner_h = threads_image_rect.height.saturating_sub(2) as usize;
+                    let mut lines = Vec::new();
+                    
+                    // Check if current terminal supports the selected image protocol
+                    let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
+                    let term_type = std::env::var("TERM").unwrap_or_default();
+                    let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
+                    
+                    let is_supported = match config.image_renderer {
+                        crate::config::ImageRenderer::Iterm2 => {
+                            term_prog == "iTerm.app" || term_prog == "WezTerm"
+                        }
+                        crate::config::ImageRenderer::Kitty => {
+                            term_prog == "Ghostty" 
+                                || term_prog == "WezTerm" 
+                                || term_prog == "iTerm.app" 
+                                || has_kitty_id 
+                                || term_type.contains("kitty")
+                        }
+                        _ => true,
+                    };
+
+                    for i in 0..inner_h {
+                        if !is_supported && i == 2 {
+                            let protocol_name = match config.image_renderer {
+                                crate::config::ImageRenderer::Iterm2 => "iTerm2",
+                                crate::config::ImageRenderer::Kitty => "Kitty",
+                                _ => "Selected",
+                            };
+                            let text = format!("  [{} protocol unsupported by terminal]", protocol_name);
+                            let text_len = text.len();
+                            let padding = inner_w.saturating_sub(text_len);
+                            lines.push(Spans::from(format!("{}{}", text, " ".repeat(padding))));
+                        } else if image_load_failed && i == 2 {
+                            let text = "  [Unsupported media format]";
+                            let padding = inner_w.saturating_sub(28);
+                            lines.push(Spans::from(format!("{}{}", text, " ".repeat(padding))));
+                        } else {
+                            lines.push(Spans::from(" ".repeat(inner_w)));
+                        }
+                    }
+                    Paragraph::new(lines)
                 }
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Cyan))
+                        .title(format_default(" Image Preview ")),
+                );
+                f.render_widget(image_widget, threads_image_rect);
             }
 
             let mut text_rect = chunks[2];
@@ -264,17 +389,48 @@ fn main() -> Result<(), io::Error> {
             let mut image_rendered = false;
             let mut cached_split_spans_post = None;
 
+            let mut post_image_load_failed = false;
+
             if config.render_images && (config.image_layout == crate::config::ImageLayout::Split || config.image_layout == crate::config::ImageLayout::Hybrid) && selected_field == SelectedField::Thread {
                 if let Some(url) = &media_url {
-                    if let crate::image_cache::ImageStatus::Loaded(cached_img) = image_cache.get_image(url) {
-                        let split = Layout::default()
-                            .direction(Direction::Horizontal)
-                            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
-                            .split(chunks[2]);
-                        text_rect = split[0];
-                        image_rect = split[1];
-                        image_rendered = true;
-                        cached_split_spans_post = Some(cached_img.split.clone());
+                    image_rendered = true;
+                    match image_cache.get_image(url, true) {
+                        crate::image_cache::ImageStatus::Loaded(cached_img) => {
+                            let split = Layout::default()
+                                .direction(Direction::Horizontal)
+                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                                .split(chunks[2]);
+                            text_rect = split[0];
+                            image_rect = split[1];
+                            if config.image_renderer == crate::config::ImageRenderer::Unicode {
+                                cached_split_spans_post = Some(cached_img.split.clone());
+                            } else {
+                                active_image_url = Some(url.clone());
+                                active_image_area = Some(Rect {
+                                    x: image_rect.x + 1,
+                                    y: image_rect.y + 1,
+                                    width: image_rect.width.saturating_sub(2),
+                                    height: image_rect.height.saturating_sub(2),
+                                });
+                            }
+                        }
+                        crate::image_cache::ImageStatus::Failed => {
+                            let split = Layout::default()
+                                .direction(Direction::Horizontal)
+                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                                .split(chunks[2]);
+                            text_rect = split[0];
+                            image_rect = split[1];
+                            post_image_load_failed = true;
+                        }
+                        crate::image_cache::ImageStatus::Loading => {
+                            let split = Layout::default()
+                                .direction(Direction::Horizontal)
+                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                                .split(chunks[2]);
+                            text_rect = split[0];
+                            image_rect = split[1];
+                        }
                     }
                 }
             }
@@ -327,18 +483,166 @@ fn main() -> Result<(), io::Error> {
             f.render_stateful_widget(thread_widget, text_rect, &mut app.thread.state);
 
             if image_rendered {
-                if let Some(spans) = &cached_split_spans_post {
-                    let image_widget = Paragraph::new(spans.as_ref().clone())
-                        .block(
-                            Block::default()
-                                .borders(Borders::ALL)
-                                .border_style(Style::default().fg(Color::Cyan))
-                                .title(format_default(" Image Preview ")),
-                        );
-                    f.render_widget(image_widget, image_rect);
+                let image_widget = if config.image_renderer == crate::config::ImageRenderer::Unicode {
+                    if let Some(spans) = &cached_split_spans_post {
+                        Paragraph::new(spans.as_ref().clone())
+                    } else {
+                        Paragraph::new("")
+                    }
+                } else {
+                    // Fill the inner area of the preview block with spaces to assist in clearing the old image smoothly
+                    let inner_w = image_rect.width.saturating_sub(2) as usize;
+                    let inner_h = image_rect.height.saturating_sub(2) as usize;
+                    let mut lines = Vec::new();
+                    
+                    // Check if current terminal supports the selected image protocol
+                    let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
+                    let term_type = std::env::var("TERM").unwrap_or_default();
+                    let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
+                    
+                    let is_supported = match config.image_renderer {
+                        crate::config::ImageRenderer::Iterm2 => {
+                            term_prog == "iTerm.app" || term_prog == "WezTerm"
+                        }
+                        crate::config::ImageRenderer::Kitty => {
+                            term_prog == "Ghostty" 
+                                || term_prog == "WezTerm" 
+                                || term_prog == "iTerm.app" 
+                                || has_kitty_id 
+                                || term_type.contains("kitty")
+                        }
+                        _ => true,
+                    };
+
+                    for i in 0..inner_h {
+                        if !is_supported && i == 2 {
+                            let protocol_name = match config.image_renderer {
+                                crate::config::ImageRenderer::Iterm2 => "iTerm2",
+                                crate::config::ImageRenderer::Kitty => "Kitty",
+                                _ => "Selected",
+                            };
+                            let text = format!("  [{} protocol unsupported by terminal]", protocol_name);
+                            let text_len = text.len();
+                            let padding = inner_w.saturating_sub(text_len);
+                            lines.push(Spans::from(format!("{}{}", text, " ".repeat(padding))));
+                        } else if post_image_load_failed && i == 2 {
+                            let text = "  [Unsupported media format]";
+                            let padding = inner_w.saturating_sub(28);
+                            lines.push(Spans::from(format!("{}{}", text, " ".repeat(padding))));
+                        } else {
+                            lines.push(Spans::from(" ".repeat(inner_w)));
+                        }
+                    }
+                    Paragraph::new(lines)
                 }
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Cyan))
+                        .title(format_default(" Image Preview ")),
+                );
+                f.render_widget(image_widget, image_rect);
             }
         })?;
+
+        if config.render_images && config.image_renderer != crate::config::ImageRenderer::Unicode {
+            let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
+            let term_type = std::env::var("TERM").unwrap_or_default();
+            let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
+            
+            let is_supported = match config.image_renderer {
+                crate::config::ImageRenderer::Iterm2 => {
+                    term_prog == "iTerm.app" || term_prog == "WezTerm"
+                }
+                crate::config::ImageRenderer::Kitty => {
+                    term_prog == "Ghostty" 
+                        || term_prog == "WezTerm" 
+                        || term_prog == "iTerm.app" 
+                        || has_kitty_id 
+                        || term_type.contains("kitty")
+                }
+                _ => true,
+            };
+
+            let url_changed = match (&active_image_url, &last_image_url) {
+                (Some(act), Some(lst)) => act != lst,
+                (None, Some(_)) => true,
+                _ => false,
+            };
+
+            if url_changed && last_image_area.is_some() {
+                if let Some(area) = last_image_area {
+                    if config.image_renderer == crate::config::ImageRenderer::Kitty && is_supported {
+                        print!("{}", crate::graphics::make_kitty_clear_sequence());
+                        let _ = io::Write::flush(&mut io::stdout());
+                    } else if config.image_renderer == crate::config::ImageRenderer::Iterm2 && is_supported {
+                        // Manually print spaces to stdout over the old image cells to bypass tui-rs virtual diffing
+                        for r in 0..area.height {
+                            print!("\x1b[{};{}H{}", area.y + r + 1, area.x + 1, " ".repeat(area.width as usize));
+                        }
+                        let _ = io::Write::flush(&mut io::stdout());
+                    }
+                }
+                last_image_area = None;
+                last_image_url = None;
+            }
+
+            if is_supported {
+                if let Some(ref url) = active_image_url {
+                    if let crate::image_cache::ImageStatus::Loaded(cached_img) = image_cache.get_image(url, true) {
+                        if let Some(area) = active_image_area {
+                            let max_w = area.width as f64;
+                            let max_h = area.height as f64;
+                            let aspect = (cached_img.width as f64 / cached_img.height as f64) * 2.0;
+                            let (cols, rows) = if aspect > max_w / max_h {
+                                let fit_w = max_w;
+                                let fit_h = max_w / aspect;
+                                (fit_w as u16, fit_h as u16)
+                            } else {
+                                let fit_h = max_h;
+                                let fit_w = max_h * aspect;
+                                (fit_w as u16, fit_h as u16)
+                            };
+                            let cols = cols.max(1);
+                            let rows = rows.max(1);
+                            let offset_x = (area.width.saturating_sub(cols) / 2) as u16;
+                            let offset_y = (area.height.saturating_sub(rows) / 2) as u16;
+                            let mut print_x = area.x + offset_x;
+                            let print_y = area.y + offset_y;
+                            
+                            // iTerm2 Kitty offset correction:
+                            // iTerm2's Kitty graphics protocol implementation has a 1-column left offset.
+                            // Ghostty and WezTerm are perfectly centered.
+                            // We check TERM_PROGRAM to apply the shift ONLY when running inside iTerm2!
+                            if config.image_renderer == crate::config::ImageRenderer::Kitty {
+                                let is_iterm = std::env::var("TERM_PROGRAM")
+                                    .map(|val| val == "iTerm.app")
+                                    .unwrap_or(false);
+                                if is_iterm {
+                                    print_x += 1;
+                                }
+                            }
+                            
+                            print!("\x1b[{};{}H", print_y + 1, print_x + 1);
+                            if config.image_renderer == crate::config::ImageRenderer::Iterm2 {
+                                print!("{}", crate::graphics::make_iterm2_sequence(&cached_img.base64_png, cols, rows));
+                            } else if config.image_renderer == crate::config::ImageRenderer::Kitty {
+                                print!("{}", crate::graphics::make_kitty_sequence(&cached_img.base64_png, cols, rows));
+                            }
+                            let _ = io::Write::flush(&mut io::stdout());
+                            
+                            last_image_area = Some(Rect {
+                                x: print_x,
+                                y: print_y,
+                                width: cols,
+                                height: rows,
+                            });
+                            last_image_url = Some(url.clone());
+                        }
+                    }
+                }
+            }
+        }
 
         match events.next().unwrap() {
             Event::Input(input) => match input {
@@ -584,6 +888,11 @@ fn main() -> Result<(), io::Error> {
                 app.advance_idly();
             }
         }
+    }
+
+    if config.render_images && config.image_renderer == crate::config::ImageRenderer::Kitty {
+        print!("{}", crate::graphics::make_kitty_clear_sequence());
+        let _ = io::Write::flush(&mut io::stdout());
     }
 
     Ok(())

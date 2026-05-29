@@ -8,6 +8,7 @@ use termion::input::TermRead;
 
 pub(crate) struct Events {
     rx: mpsc::Receiver<Event<Key>>,
+    tx: mpsc::Sender<Event<Key>>,
     _input_handle: thread::JoinHandle<()>,
     _ignore_exit_key: Arc<AtomicBool>,
     _tick_handle: thread::JoinHandle<()>,
@@ -44,6 +45,7 @@ impl Events {
         };
 
         let tick_handle = {
+            let tx = tx.clone();
             thread::spawn(move || loop {
                 if tx.send(Event::Tick).is_err() {
                     break;
@@ -54,10 +56,15 @@ impl Events {
 
         Events {
             rx,
+            tx,
             _ignore_exit_key: ignore_exit_key,
             _input_handle: input_handle,
             _tick_handle: tick_handle,
         }
+    }
+
+    pub(crate) fn tx(&self) -> mpsc::Sender<Event<Key>> {
+        self.tx.clone()
     }
 
     pub(crate) fn next(&self) -> Result<Event<Key>, mpsc::RecvError> {

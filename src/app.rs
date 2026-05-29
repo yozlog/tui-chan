@@ -294,6 +294,7 @@ impl App {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct ScreenShare {
     board_list: u16,
     thread_list: u16,

@@ -108,7 +108,7 @@ fn format_post<'a>(
     };
 
     let image_status = if let Some(ref u) = url {
-        image_cache.get_image(u)
+        image_cache.get_image(u, is_selected)
     } else {
         ImageStatus::Failed
     };
@@ -290,7 +290,6 @@ fn format_post<'a>(
                 }
             }
 
-            let image_part_len = image_part.len();
             let mut row_spans = Vec::new();
             row_spans.extend(image_part);
 
@@ -303,11 +302,9 @@ fn format_post<'a>(
             row_spans.extend(text_part);
 
             if is_selected {
-                let text_spans_width: usize = row_spans.iter()
-                    .skip(image_part_len + 1)
+                let printed_width: usize = row_spans.iter()
                     .map(|span| span.content.chars().count())
                     .sum();
-                let printed_width = thumb_w as usize + 2 + text_spans_width;
                 let target_width = area.width.saturating_sub(2) as usize;
                 if target_width > printed_width {
                     let padding = target_width - printed_width;
@@ -331,7 +328,17 @@ fn format_post<'a>(
 
 fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Spans> {
     let string = htmlescape::decode_html(string).unwrap();
-    let split = string.split("<br>");
+    // Normalize various HTML break tags and carriage returns to standard newlines
+    let string = string
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n")
+        .replace("<wbr>", "\n")
+        .replace("<wbr/>", "\n")
+        .replace("<wbr />", "\n");
+    let split = string.split('\n');
     let lines: Vec<&str> = split.collect();
 
     let mut spans = Vec::with_capacity(sub_len * line_limit);

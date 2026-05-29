@@ -27,6 +27,33 @@ impl ImageLayout {
     }
 }
 
+/// Image renderer protocol
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageRenderer {
+    Unicode,
+    Iterm2,
+    Kitty,
+}
+
+impl ImageRenderer {
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_lowercase().as_str() {
+            "iterm2" => ImageRenderer::Iterm2,
+            "kitty" => ImageRenderer::Kitty,
+            _ => ImageRenderer::Unicode,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            ImageRenderer::Unicode => "unicode",
+            ImageRenderer::Iterm2 => "iterm2",
+            ImageRenderer::Kitty => "kitty",
+        }
+    }
+}
+
 /// Application configuration structure
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -34,6 +61,8 @@ pub struct Config {
     pub render_images: bool,
     /// Preview layout mode: inline, split
     pub image_layout: ImageLayout,
+    /// Image rendering backend
+    pub image_renderer: ImageRenderer,
 }
 
 impl Default for Config {
@@ -41,6 +70,7 @@ impl Default for Config {
         Config {
             render_images: false, // Default in code is false
             image_layout: ImageLayout::Inline, // Default layout mode is inline
+            image_renderer: ImageRenderer::Unicode,
         }
     }
 }
@@ -65,6 +95,9 @@ impl Config {
                     "image_layout" => {
                         config.image_layout = ImageLayout::from_str(val.trim());
                     }
+                    "image_renderer" => {
+                        config.image_renderer = ImageRenderer::from_str(val.trim());
+                    }
                     _ => {}
                 }
             }
@@ -83,7 +116,13 @@ impl Config {
         contents.push_str("#   inline - 4chan-style left thumbnail next to post text\n");
         contents.push_str("#   split  - splits active panel horizontally with large preview on right\n");
         contents.push_str("#   hybrid - show both inline thumbnails and split preview simultaneously\n");
-        contents.push_str("image_layout=inline\n");
+        contents.push_str("image_layout=inline\n\n");
+        contents.push_str("# Image renderer protocol (only used if render_images is true)\n");
+        contents.push_str("# Allowed values:\n");
+        contents.push_str("#   unicode - pre-rendered Unicode half-blocks (▄)\n");
+        contents.push_str("#   iterm2  - iTerm2 inline image protocol (high resolution)\n");
+        contents.push_str("#   kitty   - Kitty graphics protocol (high resolution)\n");
+        contents.push_str("image_renderer=unicode\n");
         contents
     }
 }
