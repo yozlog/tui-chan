@@ -308,6 +308,22 @@ impl App {
         self.media_url(post, url_provider)
     }
 
+    pub(crate) fn current_url(&self, selected_field: &SelectedField, url_provider: &dyn ContentUrlProvider) -> String {
+        match selected_field {
+            SelectedField::BoardList => self.url_boards(url_provider),
+            SelectedField::ThreadList => self.url_threads(url_provider),
+            SelectedField::Thread => self.url_thread(url_provider),
+        }
+    }
+
+    pub(crate) fn current_media_url(&self, selected_field: &SelectedField, url_provider: &dyn ContentUrlProvider) -> Option<String> {
+        match selected_field {
+            SelectedField::BoardList => None,
+            SelectedField::ThreadList => self.media_url_threads(url_provider),
+            SelectedField::Thread => self.media_url_thread(url_provider),
+        }
+    }
+
     fn media_url(
         &self,
         post: &ThreadPost,

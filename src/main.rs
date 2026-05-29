@@ -1,14 +1,11 @@
 #![allow(clippy::single_match)]
 
 use std::{
-    env, str, thread,
-    io::{self, Write},
-    process::{self, Command, Stdio},
-    time::Duration,
+    env, str,
+    io,
+    process,
 };
 
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
 
 use client::ChanClient;
 use clipboard::{ClipboardContext, ClipboardProvider};
@@ -45,41 +42,43 @@ mod keybinds;
 mod model;
 mod style;
 mod ui;
+mod search;
+
+macro_rules! fetch_threads {
+    ($runtime:expr, $client:expr, $board:expr, $page:expr, $app:expr, $on_success:expr) => {
+        $runtime.block_on(async {
+            match $client.get_threads($board, $page).await {
+                Ok(data) => {
+                    if !data.is_empty() {
+                        $app.fill_threads(data);
+                        $on_success
+                    }
+                }
+                Err(err) => eprintln!("{:#?}", err),
+            }
+        });
+    };
+}
+
+macro_rules! fetch_thread {
+    ($runtime:expr, $client:expr, $board:expr, $no:expr, $app:expr, $on_success:expr) => {
+        $runtime.block_on(async {
+            match $client.get_thread($board, $no).await {
+                Ok(data) => {
+                    if !data.is_empty() {
+                        $app.fill_thread(data);
+                        $on_success
+                    }
+                }
+                Err(err) => eprintln!("{:#?}", err),
+            }
+        });
+    };
+}
 
 use crate::config::read_or_create_config_file;
 use crate::image_cache::ImageCache;
 
-fn update_native_search_matches(app: &mut app::App) {
-    let query = app.native_board_search.query.clone();
-    let matcher = SkimMatcherV2::default();
-    
-    let mut matches = Vec::new();
-    for (i, board) in app.boards.items.iter().enumerate() {
-        let b = board.board();
-        let stripped_text = format!("{} {}", b, board.title());
-        if query.is_empty() {
-            matches.push((i, vec![], 0));
-        } else if let Some((score, indices)) = matcher.fuzzy_indices(&stripped_text, &query) {
-            let b_len = b.chars().count();
-            // Shift indices to account for the leading '/' in the display format "/board/ title"
-            let shifted_indices = indices.into_iter().map(|idx| {
-                if idx < b_len {
-                    idx + 1  // inside the board name: account for leading '/'
-                } else {
-                    idx + 2  // inside the title: account for leading '/' and trailing '/'
-                }
-            }).collect();
-            matches.push((i, shifted_indices, score));
-        }
-    }
-    
-    if !query.is_empty() {
-        matches.sort_by_key(|b| std::cmp::Reverse(b.2));
-    }
-    
-    app.native_board_search.matched_indices = matches.into_iter().map(|(i, ind, _)| (i, ind)).collect();
-    app.native_board_search.selected = 0;
-}
 
 fn main() -> Result<(), io::Error> {
     // Get keybinds from config file
@@ -369,11 +368,11 @@ fn main() -> Result<(), io::Error> {
                     }
                     Key::Backspace => {
                         app.native_board_search.query.pop();
-                        update_native_search_matches(&mut app);
+                        search::update_native_search_matches(&mut app);
                     }
                     Key::Char(c) if !c.is_control() => {
                         app.native_board_search.query.push(c);
-                        update_native_search_matches(&mut app);
+                        search::update_native_search_matches(&mut app);
                     }
                     _ => {}
                 }
@@ -474,129 +473,36 @@ fn main() -> Result<(), io::Error> {
                     app.help_bar_mut().toggle_shown();
                 }
                 _ if input == keybinds.open_thread => {
-                    let url = match selected_field {
-                        SelectedField::BoardList => app.url_boards(api),
-                        SelectedField::ThreadList => app.url_threads(api),
-                        SelectedField::Thread => app.url_thread(api),
-                    };
-
-                    open_in_browser(url).expect("Browser error.");
+                    open_in_browser(app.current_url(&selected_field, api)).expect("Browser error.");
                 }
                 _ if input == keybinds.open_media => {
-                    let url = match selected_field {
-                        SelectedField::BoardList => None,
-                        SelectedField::ThreadList => app.media_url_threads(api),
-                        SelectedField::Thread => app.media_url_thread(api),
-                    };
-
-                    if let Some(url) = url {
+                    if let Some(url) = app.current_media_url(&selected_field, api) {
                         open_in_browser(url).expect("Browser error.");
                     }
                 }
                 _ if input == keybinds.copy_thread => {
-                    let url = match selected_field {
-                        SelectedField::BoardList => app.url_boards(api),
-                        SelectedField::ThreadList => app.url_threads(api),
-                        SelectedField::Thread => app.url_thread(api),
-                    };
-
-                    ctx.set_contents(url).expect("Clipboard error.");
+                    ctx.set_contents(app.current_url(&selected_field, api)).expect("Clipboard error.");
                 }
                 _ if input == keybinds.copy_media => {
-                    let url = match selected_field {
-                        SelectedField::BoardList => None,
-                        SelectedField::ThreadList => app.media_url_threads(api),
-                        SelectedField::Thread => app.media_url_thread(api),
-                    };
-
-                    if let Some(url) = url {
+                    if let Some(url) = app.current_media_url(&selected_field, api) {
                         ctx.set_contents(url).expect("Clipboard error.");
                     }
                 }
                 _ if input == keybinds.search_board
                     && config.fzf_board_search && selected_field == SelectedField::BoardList => {
                         if config.board_search_backend == crate::config::BoardSearchBackend::External {
-                            let boards_str = app.boards_mut().items()
-                                .iter()
-                                .map(|b| {
-                                    let board = b.board();
-                                    format!("{} {}\t/{}/ {}", board, b.title(), board, b.title())
-                                })
-                                .collect::<Vec<String>>()
-                                .join("\n");
-                                
-                            // Suspend terminal
-                            let _ = crossterm::terminal::disable_raw_mode();
-                            let _ = crossterm::execute!(io::stdout(), crossterm::event::DisableMouseCapture);
-                            events.pause();
-                            
-                            // Wait slightly longer than the event thread's poll timeout (50ms) 
-                            // to ensure it fully enters the paused state and stops reading stdin.
-                            // Otherwise, it might intercept fzf's cursor position query (\x1b[6n), 
-                            // causing fzf to timeout and delay startup by exactly 1 second!
-                            thread::sleep(Duration::from_millis(60));
-
-                            let child_res = Command::new("fzf")
-                                .args(["--height", "50%", "--layout=reverse", "--border=rounded", "--prompt=Search Board> "])
-                                .args(["--delimiter=\t", "--with-nth=2", "--nth=1"])
-                                .arg("--color=bg+:-1,hl:magenta,hl+:magenta,prompt:cyan,pointer:magenta,border:blue,info:yellow")
-                                .stdin(Stdio::piped())
-                                .stdout(Stdio::piped())
-                                .spawn();
-                                
-                            match child_res {
-                                Ok(mut child) => {
-                                    if let Some(mut stdin) = child.stdin.take() {
-                                        let _ = stdin.write_all(boards_str.as_bytes());
-                                    }
-                                    
-                                    if let Ok(output) = child.wait_with_output() {
-                                        if output.status.success() {
-                                            let result = String::from_utf8_lossy(&output.stdout);
-                                            // result is "<board> <title>\t/board/ <title>\n"; extract board name
-                                            let selected_board = result.split('\t').next().unwrap_or("").split(' ').next().unwrap_or("").trim();
-                                            if let Some(index) = app.boards_mut().items().iter().position(|b| b.board() == selected_board) {
-                                                app.boards_mut().select_index(index);
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("[tui-chan] Failed to launch fzf: {}. Is it installed?", e);
-                                }
-                            }
-                            
-                            // Restore terminal
-                            events.resume();
-                            let _ = crossterm::execute!(io::stdout(), crossterm::event::EnableMouseCapture);
-                            let _ = crossterm::terminal::enable_raw_mode();
-                            let _ = terminal.clear();
+                            search::run_external_fzf(&mut app, &events, &mut terminal);
                         } else {
                             // Native search
                             app.native_board_search.active = true;
                             app.native_board_search.query.clear();
-                            update_native_search_matches(&mut app);
+                            search::update_native_search_matches(&mut app);
                         }
                 }
                 _ if input == keybinds.page_next => {
                     match selected_field {
                         SelectedField::ThreadList => {
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_threads(
-                                        app.selected_board().board(),
-                                        thread_list.next_page(app.selected_board()),
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => {
-                                        if !data.is_empty() {
-                                            app.fill_threads(data);
-                                        }
-                                    },
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-                            });
+                            fetch_threads!(runtime, client, app.selected_board().board(), thread_list.next_page(app.selected_board()), app, {});
                         }
                         _ => {}
                     };
@@ -604,22 +510,7 @@ fn main() -> Result<(), io::Error> {
                 _ if input == keybinds.page_previous => {
                     match selected_field {
                         SelectedField::ThreadList => {
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_threads(
-                                        app.selected_board().board(),
-                                        thread_list.prev_page(app.selected_board()),
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => {
-                                        if !data.is_empty() {
-                                            app.fill_threads(data);
-                                        }
-                                    },
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-                            });
+                            fetch_threads!(runtime, client, app.selected_board().board(), thread_list.prev_page(app.selected_board()), app, {});
                         }
                         _ => {}
                     };
@@ -627,42 +518,10 @@ fn main() -> Result<(), io::Error> {
                 _ if input == keybinds.reload => {
                     match selected_field {
                         SelectedField::ThreadList => {
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_threads(
-                                        app.selected_board().board(),
-                                        thread_list.cur_page(),
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => {
-                                        if !data.is_empty() {
-                                            app.fill_threads(data);
-                                            app.threads.advance_by(1);
-                                        }
-                                    },
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-                            });
+                            fetch_threads!(runtime, client, app.selected_board().board(), thread_list.cur_page(), app, { app.threads.advance_by(1); });
                         }
                         SelectedField::Thread => {
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_thread(
-                                        app.selected_board().board(),
-                                        app.selected_thread().posts().first().unwrap().no() as u64,
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => {
-                                        if !data.is_empty() {
-                                            app.fill_thread(data);
-                                            app.thread.advance_by(1);
-                                        }
-                                    },
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-                            });
+                            fetch_thread!(runtime, client, app.selected_board().board(), app.selected_thread().posts().first().unwrap().no() as u64, app, { app.thread.advance_by(1); });
                         }
                         _ => {}
                     };
@@ -672,46 +531,18 @@ fn main() -> Result<(), io::Error> {
                         SelectedField::BoardList => {
                             thread_list = ThreadList::new();
                             thread_list.set_description(app.selected_board().meta_description());
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_threads(
-                                        app.selected_board().board(),
-                                        thread_list.cur_page(),
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => {
-                                        if !data.is_empty() {
-                                            selected_field = SelectedField::ThreadList;
-                                            app.set_shown_thread_list(true);
-                                            app.fill_threads(data);
-                                            app.threads.advance_by(1);
-                                        }
-                                    },
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
+                            fetch_threads!(runtime, client, app.selected_board().board(), thread_list.cur_page(), app, {
+                                selected_field = SelectedField::ThreadList;
+                                app.set_shown_thread_list(true);
+                                app.threads.advance_by(1);
                             });
                         }
                         SelectedField::ThreadList => {
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_thread(
-                                        app.selected_board().board(),
-                                        app.selected_thread().posts().first().unwrap().no() as u64,
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => {
-                                        if !data.is_empty() {
-                                            selected_field = SelectedField::Thread;
-                                            app.set_shown_thread(true);
-                                            app.set_shown_board_list(false);
-                                            app.fill_thread(data);
-                                            app.thread.advance_by(1);
-                                        }
-                                    },
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
+                            fetch_thread!(runtime, client, app.selected_board().board(), app.selected_thread().posts().first().unwrap().no() as u64, app, {
+                                selected_field = SelectedField::Thread;
+                                app.set_shown_thread(true);
+                                app.set_shown_board_list(false);
+                                app.thread.advance_by(1);
                             });
                         }
                         _ => {}
