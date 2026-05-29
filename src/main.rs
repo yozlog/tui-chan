@@ -380,14 +380,7 @@ fn main() -> Result<(), io::Error> {
         }
 
         match event {
-            Event::Input(mut input) => {
-                // Normalize standard terminal CR/LF characters (which are sent by Ctrl+j/Ctrl+m)
-                // so that the keybind match works successfully in standard Unix terminals.
-                if let Key::Char('\n') = input {
-                    input = Key::Ctrl('j');
-                } else if let Key::Char('\r') = input {
-                    input = Key::Ctrl('m');
-                }
+            Event::Input(input) => {
 
                 let count = if has_vim_prefix {
                     let c = vim_prefix as isize;
