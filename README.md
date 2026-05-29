@@ -41,6 +41,11 @@ Settings can be configured in `~/.config/tui-chan/settings.conf`
   - `unicode` (Default): Uses character half-blocks (`▄`) to render low-resolution pixelated previews. Works in any terminal.
   - `iterm2`: Uses the iTerm2 inline image protocol to display high-resolution lossless previews. Supported by iTerm2, WezTerm, and other compatible terminals.
   - `kitty`: Uses the Kitty graphics protocol to display high-resolution lossless previews. Supported by Ghostty, WezTerm, Kitty, and modern iTerm2.
+> [!NOTE]
+> The below two settings are highly beneficial for Vim users to leverage prefix count multipliers (e.g. `3j`, `5k`) for efficient, rapid list navigation. If you are a Vim user, you can also customize `keybinds.conf` to map standard navigation from `wasd` to `hjkl` (and map quick navigation keys to `Ctrl` + `hjkl` accordingly).
+
+- `board_line_numbers`: Enable/disable line numbers in the board list (`true` or `false`). Defaults to `false`.
+- `board_relative_line_numbers`: Enable/disable relative line numbers in the board list (`true` or `false`). Evaluated only if `board_line_numbers` is set to `true`. Defaults to `false`.
 
 ## Controls
 

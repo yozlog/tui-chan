@@ -96,6 +96,7 @@ fn main() -> Result<(), io::Error> {
     let mut last_screen_share = app.calc_screen_share();
     let mut last_image_area: Option<tui::layout::Rect> = None;
     let mut last_image_url: Option<String> = None;
+    let mut vim_prefix = String::new();
 
     loop {
         let scr_share = app.calc_screen_share();
@@ -233,19 +234,48 @@ fn main() -> Result<(), io::Error> {
                 )
                 .split(helpbar_chunk[0]);
 
+            let selected_idx = app.boards.state.selected().unwrap_or(0);
+            let num_width = if config.board_relative_line_numbers {
+                let max_relative = app.boards.items.len().saturating_sub(1);
+                if max_relative >= 100 { 3 } else if max_relative >= 10 { 2 } else { 1 }
+            } else {
+                let max_absolute = app.boards.items.len();
+                if max_absolute >= 100 { 3 } else if max_absolute >= 10 { 2 } else { 1 }
+            };
+
             let items: Vec<ListItem> = app
                 .boards
                 .items
                 .iter()
-                .map(|board| {
-                    let lines = vec![Spans::from(vec![
-                        Span::styled(
-                            format_default(&format!("/{}/", board.board())),
-                            Style::default().fg(Color::Magenta),
-                        ),
-                        Span::raw(format_default(board.title())),
-                    ])];
+                .enumerate()
+                .map(|(i, board)| {
+                    let mut spans = vec![];
 
+                    if config.board_line_numbers {
+                        let num = if config.board_relative_line_numbers {
+                            (i as isize - selected_idx as isize).abs()
+                        } else {
+                            (i + 1) as isize
+                        };
+                        let num_str = format!("{:>width$} ", num, width = num_width);
+                        spans.push(Span::styled(
+                            num_str,
+                            Style::default().fg(Color::Indexed(242)),
+                        ));
+                    }
+
+                    spans.push(Span::styled(
+                        if config.board_line_numbers {
+                            format!("/{}/", board.board())
+                        } else {
+                            format_default(&format!("/{}/", board.board()))
+                        },
+                        Style::default().fg(Color::Magenta),
+                    ));
+
+                    spans.push(Span::raw(format_default(board.title())));
+
+                    let lines = vec![Spans::from(spans)];
                     ListItem::new(lines).style(Style::default())
                 })
                 .collect();
@@ -385,23 +415,7 @@ fn main() -> Result<(), io::Error> {
                     let mut lines = Vec::new();
                     
                     // Check if current terminal supports the selected image protocol
-                    let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
-                    let term_type = std::env::var("TERM").unwrap_or_default();
-                    let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
-                    
-                    let is_supported = match config.image_renderer {
-                        crate::config::ImageRenderer::Iterm2 => {
-                            term_prog == "iTerm.app" || term_prog == "WezTerm"
-                        }
-                        crate::config::ImageRenderer::Kitty => {
-                            term_prog == "Ghostty" 
-                                || term_prog == "WezTerm" 
-                                || term_prog == "iTerm.app" 
-                                || has_kitty_id 
-                                || term_type.contains("kitty")
-                        }
-                        _ => true,
-                    };
+                    let is_supported = crate::graphics::is_graphics_protocol_supported(&config.image_renderer);
 
                     for i in 0..inner_h {
                         if !is_supported && i == 2 {
@@ -535,23 +549,7 @@ fn main() -> Result<(), io::Error> {
                     let mut lines = Vec::new();
                     
                     // Check if current terminal supports the selected image protocol
-                    let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
-                    let term_type = std::env::var("TERM").unwrap_or_default();
-                    let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
-                    
-                    let is_supported = match config.image_renderer {
-                        crate::config::ImageRenderer::Iterm2 => {
-                            term_prog == "iTerm.app" || term_prog == "WezTerm"
-                        }
-                        crate::config::ImageRenderer::Kitty => {
-                            term_prog == "Ghostty" 
-                                || term_prog == "WezTerm" 
-                                || term_prog == "iTerm.app" 
-                                || has_kitty_id 
-                                || term_type.contains("kitty")
-                        }
-                        _ => true,
-                    };
+                    let is_supported = crate::graphics::is_graphics_protocol_supported(&config.image_renderer);
 
                     for i in 0..inner_h {
                         if !is_supported && i == 2 {
@@ -587,23 +585,7 @@ fn main() -> Result<(), io::Error> {
         })?;
 
         if config.render_images && config.image_renderer != crate::config::ImageRenderer::Unicode {
-            let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
-            let term_type = std::env::var("TERM").unwrap_or_default();
-            let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
-            
-            let is_supported = match config.image_renderer {
-                crate::config::ImageRenderer::Iterm2 => {
-                    term_prog == "iTerm.app" || term_prog == "WezTerm"
-                }
-                crate::config::ImageRenderer::Kitty => {
-                    term_prog == "Ghostty" 
-                        || term_prog == "WezTerm" 
-                        || term_prog == "iTerm.app" 
-                        || has_kitty_id 
-                        || term_type.contains("kitty")
-                }
-                _ => true,
-            };
+            let is_supported = crate::graphics::is_graphics_protocol_supported(&config.image_renderer);
 
             if is_supported {
                 if let Some(ref url) = active_image_url {
@@ -662,43 +644,64 @@ fn main() -> Result<(), io::Error> {
             }
         }
 
-        match events.next().unwrap() {
-            Event::Input(input) => match input {
-                _ if input == keybinds.quit => {
-                    break;
+        let event = events.next().unwrap();
+        if let Event::Input(termion::event::Key::Char(c)) = event {
+            if c.is_ascii_digit() && (!vim_prefix.is_empty() || c != '0') {
+                vim_prefix.push(c);
+                continue;
+            }
+        }
+
+        match event {
+            Event::Input(mut input) => {
+                // Normalize standard terminal CR/LF characters (which are sent by Ctrl+j/Ctrl+m)
+                // so that the keybind match works successfully in standard Unix terminals.
+                if let termion::event::Key::Char('\n') = input {
+                    input = termion::event::Key::Ctrl('j');
+                } else if let termion::event::Key::Char('\r') = input {
+                    input = termion::event::Key::Ctrl('m');
                 }
-                _ if input == keybinds.left => {
-                    match selected_field {
-                        SelectedField::BoardList => {}
-                        SelectedField::ThreadList => {
-                            app.set_shown_board_list(true);
-                            app.set_shown_thread(false);
-                            selected_field = SelectedField::BoardList;
-                        }
-                        SelectedField::Thread => {
-                            app.set_shown_board_list(true);
-                            app.set_shown_thread_list(true);
-                            app.set_shown_thread(false);
-                            selected_field = SelectedField::ThreadList;
-                        }
-                    };
-                }
-                _ if input == keybinds.down => {
-                    const STEPS: isize = 1;
-                    app.advance(&selected_field, STEPS);
-                }
-                _ if input == keybinds.up => {
-                    const STEPS: isize = -1;
-                    app.advance(&selected_field, STEPS);
-                }
-                _ if input == keybinds.quick_down => {
-                    const STEPS: isize = 5;
-                    app.advance(&selected_field, STEPS);
-                }
-                _ if input == keybinds.quick_up => {
-                    const STEPS: isize = -5;
-                    app.advance(&selected_field, STEPS);
-                }
+
+                let count = if vim_prefix.is_empty() {
+                    1
+                } else {
+                    let c = vim_prefix.parse::<isize>().unwrap_or(1);
+                    vim_prefix.clear();
+                    c
+                };
+
+                match input {
+                    _ if input == keybinds.quit => {
+                        break;
+                    }
+                    _ if input == keybinds.left => {
+                        match selected_field {
+                            SelectedField::BoardList => {}
+                            SelectedField::ThreadList => {
+                                app.set_shown_board_list(true);
+                                app.set_shown_thread(false);
+                                selected_field = SelectedField::BoardList;
+                            }
+                            SelectedField::Thread => {
+                                app.set_shown_board_list(true);
+                                app.set_shown_thread_list(true);
+                                app.set_shown_thread(false);
+                                selected_field = SelectedField::ThreadList;
+                            }
+                        };
+                    }
+                    _ if input == keybinds.down => {
+                        app.advance(&selected_field, 1 * count);
+                    }
+                    _ if input == keybinds.up => {
+                        app.advance(&selected_field, -1 * count);
+                    }
+                    _ if input == keybinds.quick_down => {
+                        app.advance(&selected_field, 5 * count);
+                    }
+                    _ if input == keybinds.quick_up => {
+                        app.advance(&selected_field, -5 * count);
+                    }
                 _ if input == keybinds.fullscreen => {
                     match selected_field {
                         SelectedField::BoardList => {
@@ -940,6 +943,7 @@ fn main() -> Result<(), io::Error> {
                     last_image_url = None;
                 }
                 _ => {}
+            }
             },
             Event::Tick => {
                 app.advance_idly();

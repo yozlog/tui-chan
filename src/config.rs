@@ -63,6 +63,10 @@ pub struct Config {
     pub image_layout: ImageLayout,
     /// Image rendering backend
     pub image_renderer: ImageRenderer,
+    /// Toggle line numbers in the board list
+    pub board_line_numbers: bool,
+    /// Toggle relative line numbers in the board list
+    pub board_relative_line_numbers: bool,
 }
 
 impl Default for Config {
@@ -71,6 +75,8 @@ impl Default for Config {
             render_images: false, // Default in code is false
             image_layout: ImageLayout::Inline, // Default layout mode is inline
             image_renderer: ImageRenderer::Unicode,
+            board_line_numbers: false,
+            board_relative_line_numbers: false,
         }
     }
 }
@@ -98,6 +104,16 @@ impl Config {
                     "image_renderer" => {
                         config.image_renderer = ImageRenderer::from_str(val.trim());
                     }
+                    "board_line_numbers" => {
+                        if let Ok(b) = val.trim().parse::<bool>() {
+                            config.board_line_numbers = b;
+                        }
+                    }
+                    "board_relative_line_numbers" => {
+                        if let Ok(b) = val.trim().parse::<bool>() {
+                            config.board_relative_line_numbers = b;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -122,7 +138,11 @@ impl Config {
         contents.push_str("#   unicode - pre-rendered Unicode half-blocks (▄)\n");
         contents.push_str("#   iterm2  - iTerm2 inline image protocol (high resolution)\n");
         contents.push_str("#   kitty   - Kitty graphics protocol (high resolution)\n");
-        contents.push_str("image_renderer=unicode\n");
+        contents.push_str("image_renderer=unicode\n\n");
+        contents.push_str("# Enable/disable line numbers in the board list\n");
+        contents.push_str("board_line_numbers=false\n\n");
+        contents.push_str("# Enable/disable relative line numbers in the board list (only used if board_line_numbers is true)\n");
+        contents.push_str("board_relative_line_numbers=false\n");
         contents
     }
 }
