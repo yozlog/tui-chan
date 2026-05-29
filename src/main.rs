@@ -136,6 +136,80 @@ fn main() -> Result<(), io::Error> {
 
         let mut active_image_url: Option<String> = None;
         let mut active_image_area: Option<tui::layout::Rect> = None;
+        let mut last_layout_chunk_1 = tui::layout::Rect::default();
+        let mut last_layout_chunk_2 = tui::layout::Rect::default();
+
+        let current_image_url = if config.render_images && (config.image_layout == crate::config::ImageLayout::Split || config.image_layout == crate::config::ImageLayout::Hybrid) {
+            match selected_field {
+                SelectedField::BoardList => None,
+                SelectedField::ThreadList => app.media_url_threads(api),
+                SelectedField::Thread => app.media_url_thread(api),
+            }
+        } else {
+            None
+        };
+
+        let url_changed = match (&current_image_url, &last_image_url) {
+            (Some(act), Some(lst)) => act != lst,
+            (None, Some(_)) => true,
+            _ => false,
+        };
+
+        if url_changed {
+            if config.render_images && config.image_renderer != crate::config::ImageRenderer::Unicode {
+                let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
+                let term_type = std::env::var("TERM").unwrap_or_default();
+                let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
+                
+                let is_supported = match config.image_renderer {
+                    crate::config::ImageRenderer::Iterm2 => {
+                        term_prog == "iTerm.app" || term_prog == "WezTerm"
+                    }
+                    crate::config::ImageRenderer::Kitty => {
+                        term_prog == "Ghostty" 
+                            || term_prog == "WezTerm" 
+                            || term_prog == "iTerm.app" 
+                            || has_kitty_id 
+                            || term_type.contains("kitty")
+                    }
+                    _ => true,
+                };
+
+                if current_image_url.is_none() && last_image_url.is_some() {
+                    // Manually print spaces to erase the entire preview block (including border lines) 
+                    // from the screen, BEFORE terminal.draw is called. This guarantees the old borders 
+                    // are erased first, and then the text can occupy the full width cleanly.
+                    let target_chunk = match selected_field {
+                        SelectedField::Thread => last_layout_chunk_2,
+                        _ => last_layout_chunk_1,
+                    };
+                    let split = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                        .split(target_chunk);
+                    let prev_box = split[1];
+                    for r in 0..prev_box.height {
+                        print!("\x1b[{};{}H{}", prev_box.y + r + 1, prev_box.x + 1, " ".repeat(prev_box.width as usize));
+                    }
+                    let _ = io::Write::flush(&mut io::stdout());
+                }
+
+                if let Some(area) = last_image_area {
+                    if config.image_renderer == crate::config::ImageRenderer::Kitty && is_supported {
+                        print!("{}", crate::graphics::make_kitty_clear_sequence());
+                        let _ = io::Write::flush(&mut io::stdout());
+                    } else if config.image_renderer == crate::config::ImageRenderer::Iterm2 && is_supported {
+                        // Manually print spaces to stdout over the old image cells to bypass tui-rs virtual diffing
+                        for r in 0..area.height {
+                            print!("\x1b[{};{}H{}", area.y + r + 1, area.x + 1, " ".repeat(area.width as usize));
+                        }
+                        let _ = io::Write::flush(&mut io::stdout());
+                    }
+                }
+            }
+            last_image_area = None;
+            last_image_url = None;
+        }
 
         terminal.draw(|f| {
             let block_style = style_prov.default_from_selected_field(&selected_field);
@@ -226,47 +300,38 @@ fn main() -> Result<(), io::Error> {
             let mut cached_split_spans = None;
 
             let mut image_load_failed = false;
-
+ 
             if config.render_images && (config.image_layout == crate::config::ImageLayout::Split || config.image_layout == crate::config::ImageLayout::Hybrid) && selected_field == SelectedField::ThreadList {
                 if let Some(url) = &media_url {
                     threads_image_rendered = true;
+                    
+                    // Unified single layout splitting to avoid duplicate calculation and compiler warnings
+                    let split = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                        .split(chunks[1]);
+                    threads_text_rect = split[0];
+                    threads_image_rect = split[1];
+                    
+                    if config.image_renderer != crate::config::ImageRenderer::Unicode {
+                        active_image_url = Some(url.clone());
+                        active_image_area = Some(Rect {
+                            x: threads_image_rect.x + 1,
+                            y: threads_image_rect.y + 1,
+                            width: threads_image_rect.width.saturating_sub(2),
+                            height: threads_image_rect.height.saturating_sub(2),
+                        });
+                    }
                     match image_cache.get_image(url, true) {
                         crate::image_cache::ImageStatus::Loaded(cached_img) => {
-                            let split = Layout::default()
-                                .direction(Direction::Horizontal)
-                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
-                                .split(chunks[1]);
-                            threads_text_rect = split[0];
-                            threads_image_rect = split[1];
                             if config.image_renderer == crate::config::ImageRenderer::Unicode {
                                 cached_split_spans = Some(cached_img.split.clone());
-                            } else {
-                                active_image_url = Some(url.clone());
-                                active_image_area = Some(Rect {
-                                    x: threads_image_rect.x + 1,
-                                    y: threads_image_rect.y + 1,
-                                    width: threads_image_rect.width.saturating_sub(2),
-                                    height: threads_image_rect.height.saturating_sub(2),
-                                });
                             }
                         }
                         crate::image_cache::ImageStatus::Failed => {
-                            let split = Layout::default()
-                                .direction(Direction::Horizontal)
-                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
-                                .split(chunks[1]);
-                            threads_text_rect = split[0];
-                            threads_image_rect = split[1];
                             image_load_failed = true;
                         }
-                        crate::image_cache::ImageStatus::Loading => {
-                            let split = Layout::default()
-                                .direction(Direction::Horizontal)
-                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
-                                .split(chunks[1]);
-                            threads_text_rect = split[0];
-                            threads_image_rect = split[1];
-                        }
+                        crate::image_cache::ImageStatus::Loading => {}
                     }
                 }
             }
@@ -388,49 +453,39 @@ fn main() -> Result<(), io::Error> {
             let mut image_rect = chunks[2];
             let mut image_rendered = false;
             let mut cached_split_spans_post = None;
-
             let mut post_image_load_failed = false;
-
+ 
             if config.render_images && (config.image_layout == crate::config::ImageLayout::Split || config.image_layout == crate::config::ImageLayout::Hybrid) && selected_field == SelectedField::Thread {
                 if let Some(url) = &media_url {
                     image_rendered = true;
+                    
+                    // Unified single layout splitting to avoid duplicate calculation and compiler warnings
+                    let split = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                        .split(chunks[2]);
+                    text_rect = split[0];
+                    image_rect = split[1];
+                    
+                    if config.image_renderer != crate::config::ImageRenderer::Unicode {
+                        active_image_url = Some(url.clone());
+                        active_image_area = Some(Rect {
+                            x: image_rect.x + 1,
+                            y: image_rect.y + 1,
+                            width: image_rect.width.saturating_sub(2),
+                            height: image_rect.height.saturating_sub(2),
+                        });
+                    }
                     match image_cache.get_image(url, true) {
                         crate::image_cache::ImageStatus::Loaded(cached_img) => {
-                            let split = Layout::default()
-                                .direction(Direction::Horizontal)
-                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
-                                .split(chunks[2]);
-                            text_rect = split[0];
-                            image_rect = split[1];
                             if config.image_renderer == crate::config::ImageRenderer::Unicode {
                                 cached_split_spans_post = Some(cached_img.split.clone());
-                            } else {
-                                active_image_url = Some(url.clone());
-                                active_image_area = Some(Rect {
-                                    x: image_rect.x + 1,
-                                    y: image_rect.y + 1,
-                                    width: image_rect.width.saturating_sub(2),
-                                    height: image_rect.height.saturating_sub(2),
-                                });
                             }
                         }
                         crate::image_cache::ImageStatus::Failed => {
-                            let split = Layout::default()
-                                .direction(Direction::Horizontal)
-                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
-                                .split(chunks[2]);
-                            text_rect = split[0];
-                            image_rect = split[1];
                             post_image_load_failed = true;
                         }
-                        crate::image_cache::ImageStatus::Loading => {
-                            let split = Layout::default()
-                                .direction(Direction::Horizontal)
-                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
-                                .split(chunks[2]);
-                            text_rect = split[0];
-                            image_rect = split[1];
-                        }
+                        crate::image_cache::ImageStatus::Loading => {}
                     }
                 }
             }
@@ -543,6 +598,8 @@ fn main() -> Result<(), io::Error> {
                 );
                 f.render_widget(image_widget, image_rect);
             }
+            last_layout_chunk_1 = chunks[1];
+            last_layout_chunk_2 = chunks[2];
         })?;
 
         if config.render_images && config.image_renderer != crate::config::ImageRenderer::Unicode {
@@ -563,29 +620,6 @@ fn main() -> Result<(), io::Error> {
                 }
                 _ => true,
             };
-
-            let url_changed = match (&active_image_url, &last_image_url) {
-                (Some(act), Some(lst)) => act != lst,
-                (None, Some(_)) => true,
-                _ => false,
-            };
-
-            if url_changed && last_image_area.is_some() {
-                if let Some(area) = last_image_area {
-                    if config.image_renderer == crate::config::ImageRenderer::Kitty && is_supported {
-                        print!("{}", crate::graphics::make_kitty_clear_sequence());
-                        let _ = io::Write::flush(&mut io::stdout());
-                    } else if config.image_renderer == crate::config::ImageRenderer::Iterm2 && is_supported {
-                        // Manually print spaces to stdout over the old image cells to bypass tui-rs virtual diffing
-                        for r in 0..area.height {
-                            print!("\x1b[{};{}H{}", area.y + r + 1, area.x + 1, " ".repeat(area.width as usize));
-                        }
-                        let _ = io::Write::flush(&mut io::stdout());
-                    }
-                }
-                last_image_area = None;
-                last_image_url = None;
-            }
 
             if is_supported {
                 if let Some(ref url) = active_image_url {
