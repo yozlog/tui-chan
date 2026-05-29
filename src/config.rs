@@ -139,9 +139,13 @@ impl Config {
         contents.push_str("#   iterm2  - iTerm2 inline image protocol (high resolution)\n");
         contents.push_str("#   kitty   - Kitty graphics protocol (high resolution)\n");
         contents.push_str("image_renderer=unicode\n\n");
-        contents.push_str("# Enable/disable line numbers in the board list\n");
+        contents.push_str("# Show line numbers in the board list\n");
+        contents.push_str("# Useful for Vim-style navigation: prefix a move key with a number (e.g. 3j, 5k)\n");
+        contents.push_str("# to jump multiple rows at once. If you remap wasd -> hjkl, the same applies.\n");
         contents.push_str("board_line_numbers=false\n\n");
-        contents.push_str("# Enable/disable relative line numbers in the board list (only used if board_line_numbers is true)\n");
+        contents.push_str("# Show relative line numbers instead of absolute ones (requires board_line_numbers=true)\n");
+        contents.push_str("# The selected board is always 0; rows above and below are numbered by distance.\n");
+        contents.push_str("# Makes it easy to see at a glance how many steps to reach any board.\n");
         contents.push_str("board_relative_line_numbers=false\n");
         contents
     }

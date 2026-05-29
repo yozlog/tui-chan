@@ -6,9 +6,11 @@ Currently supports only 4chan.
 ![demo](docs/demo.gif)
 
 ## Installation
+
 Download the [latest release][latest-releases]. The binary executable is `tui-chan`. Put it in your PATH so that you can execute it from everywhere.
 
 Then run it from the command line.
+
 ```shell
 tui-chan
 ```
@@ -16,6 +18,7 @@ tui-chan
 An imageboard name may be specified as an argument, the default one is `4chan`.
 
 ## Building from source
+
 If your architecture is not supported by the pre-built binaries you can build the application from the source code yourself.
 Make sure you have [Rust][rust-installation-url] installed.
 
@@ -41,6 +44,7 @@ Settings can be configured in `~/.config/tui-chan/settings.conf`
   - `unicode` (Default): Uses character half-blocks (`▄`) to render low-resolution pixelated previews. Works in any terminal.
   - `iterm2`: Uses the iTerm2 inline image protocol to display high-resolution lossless previews. Supported by iTerm2, WezTerm, and other compatible terminals.
   - `kitty`: Uses the Kitty graphics protocol to display high-resolution lossless previews. Supported by Ghostty, WezTerm, Kitty, and modern iTerm2.
+
 > [!NOTE]
 > The below two settings are highly beneficial for Vim users to leverage prefix count multipliers (e.g. `3j`, `5k`) for efficient, rapid list navigation. If you are a Vim user, you can also customize `keybinds.conf` to map standard navigation from `wasd` to `hjkl` (and map quick navigation keys to `Ctrl` + `hjkl` accordingly).
 
