@@ -36,6 +36,22 @@ impl ImageRenderer {
     }
 }
 
+/// Backend for board searching
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoardSearchBackend {
+    Native,
+    External,
+}
+
+impl BoardSearchBackend {
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_lowercase().as_str() {
+            "external" => BoardSearchBackend::External,
+            _ => BoardSearchBackend::Native,
+        }
+    }
+}
+
 /// Application configuration structure
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -49,6 +65,10 @@ pub struct Config {
     pub board_line_numbers: bool,
     /// Toggle relative line numbers in the board list
     pub board_relative_line_numbers: bool,
+    /// Toggle fzf board searching
+    pub fzf_board_search: bool,
+    /// Backend for board search
+    pub board_search_backend: BoardSearchBackend,
 }
 
 impl Default for Config {
@@ -59,6 +79,8 @@ impl Default for Config {
             image_renderer: ImageRenderer::Unicode,
             board_line_numbers: false,
             board_relative_line_numbers: false,
+            fzf_board_search: false,
+            board_search_backend: BoardSearchBackend::Native,
         }
     }
 }
@@ -96,6 +118,14 @@ impl Config {
                             config.board_relative_line_numbers = b;
                         }
                     }
+                    "fzf_board_search" => {
+                        if let Ok(b) = val.trim().parse::<bool>() {
+                            config.fzf_board_search = b;
+                        }
+                    }
+                    "board_search_backend" => {
+                        config.board_search_backend = BoardSearchBackend::from_str(val.trim());
+                    }
                     _ => {}
                 }
             }
@@ -128,7 +158,12 @@ impl Config {
         contents.push_str("# Show relative line numbers instead of absolute ones (requires board_line_numbers=true)\n");
         contents.push_str("# The selected board is always 0; rows above and below are numbered by distance.\n");
         contents.push_str("# Makes it easy to see at a glance how many steps to reach any board.\n");
-        contents.push_str("board_relative_line_numbers=false\n");
+        contents.push_str("board_relative_line_numbers=false\n\n");
+        contents.push_str("# Toggle fzf search for boards\n");
+        contents.push_str("fzf_board_search=false\n\n");
+        contents.push_str("# Backend for board search (native or external)\n");
+        contents.push_str("# Note: using 'external' requires installing the 'fzf' CLI tool on your system.\n");
+        contents.push_str("board_search_backend=native\n");
         contents
     }
 }

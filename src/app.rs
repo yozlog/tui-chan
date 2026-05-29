@@ -6,10 +6,25 @@ use crate::keybinds::{display_key, Keybinds};
 use crate::model::{Board, Thread, ThreadPost};
 use crate::style::SelectedField;
 
+#[derive(Default)]
+pub(crate) struct NativeBoardSearch {
+    pub(crate) active: bool,
+    pub(crate) query: String,
+    pub(crate) matched_indices: Vec<(usize, Vec<usize>)>,
+    pub(crate) selected: usize,
+}
+
+impl NativeBoardSearch {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+}
+
 pub(crate) struct App {
     pub(crate) boards: ItemList<Board>,
     pub(crate) threads: ItemList<Thread>,
     pub(crate) thread: ItemList<ThreadPost>,
+    pub(crate) native_board_search: NativeBoardSearch,
     shown_state: ShownState,
     help_bar: HelpBar,
 }
@@ -67,6 +82,7 @@ impl App {
             open_media,
             fullscreen,
             reload,
+            search_board,
             help,
             quit,
             toggle_image_previews,
@@ -106,7 +122,12 @@ impl App {
             ],
             &["previous page:", &page_previous, "reload page:", &reload],
             &["quit:", &quit, "open media url in browser:", &open_media],
-            &["toggle images:", &toggle_image_previews, "", ""],
+            &[
+                "toggle images:",
+                &toggle_image_previews,
+                "fzf board search:",
+                &search_board,
+            ],
         ];
 
         let text = format!(
@@ -122,6 +143,7 @@ impl App {
             boards: ItemList::new(boards),
             threads: ItemList::new(threads),
             thread: ItemList::new(thread),
+            native_board_search: NativeBoardSearch::new(),
             shown_state: ShownState {
                 board_list: false,
                 thread_list: false,
@@ -238,8 +260,12 @@ impl App {
         self.shown_state.thread_list
     }
 
-    pub(crate) fn shown_thread(&mut self) -> bool {
+    pub(crate) fn shown_thread(&self) -> bool {
         self.shown_state.thread
+    }
+
+    pub(crate) fn boards_mut(&mut self) -> &mut ItemList<Board> {
+        &mut self.boards
     }
 
     pub(crate) fn help_bar(&self) -> &HelpBar {
@@ -403,6 +429,16 @@ impl<T> ItemList<T> {
     pub(crate) fn jump_bottom(&mut self) {
         if !self.items.is_empty() {
             self.state.select(Some(self.items.len() - 1));
+        }
+    }
+
+    pub(crate) fn items(&self) -> &Vec<T> {
+        &self.items
+    }
+
+    pub(crate) fn select_index(&mut self, index: usize) {
+        if index < self.items.len() {
+            self.state.select(Some(index));
         }
     }
 }

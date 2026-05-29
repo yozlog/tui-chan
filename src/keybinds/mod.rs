@@ -83,6 +83,7 @@ define_keybinds! {
     open_thread        'o'  /// Open the selected thread or post in browser
     copy_media    Ctrl 'c'  /// Copy the selected post media (image/webm) url
     open_media    Ctrl 'o'  /// Open the selected post media (image/webm) in browser
+    search_board       'f'  /// Search boards using fzf (requires fzf_board_search=true)
     fullscreen         'z'  /// Toggle fullscreen for the selected panel
     reload             'r'  /// Reload page
     toggle_image_previews 'i'  /// Toggle image previews

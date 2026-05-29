@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
@@ -43,6 +44,33 @@ fn build_image_preview_placeholder<'a>(
         }
     }
     Paragraph::new(lines)
+}
+
+/// helper function to create a centered rect using up certain percentage of the available rect `r`
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_y) / 2),
+                Constraint::Percentage(percent_y),
+                Constraint::Percentage((100 - percent_y) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_x) / 2),
+                Constraint::Percentage(percent_x),
+                Constraint::Percentage((100 - percent_x) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(popup_layout[1])[1]
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -388,6 +416,89 @@ pub(crate) fn draw<B: Backend>(
                 );
                 f.render_widget(image_widget, image_rect);
             }
+            if app.native_board_search.active {
+                // Clear the background to draw a centered popup floating over the UI
+                let area = centered_rect(50, 50, f.size());
+                f.render_widget(tui::widgets::Clear, area);
+
+                let search_block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Blue));
+
+                let inner_area = search_block.inner(area);
+                f.render_widget(search_block, area);
+
+                // Split inner area into input (top line) and list (rest)
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Length(1), Constraint::Min(0)].as_ref())
+                    .split(inner_area);
+
+                let top_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(0), Constraint::Length(10)].as_ref())
+                    .split(chunks[0]);
+
+                // Render Input
+                let input_spans = vec![
+                    Span::styled("Search Board> ", Style::default().fg(Color::Cyan)),
+                    Span::styled(&app.native_board_search.query, Style::default().fg(Color::White)),
+                    Span::styled(" ", Style::default().bg(Color::Gray)), // Cursor
+                ];
+                let input_paragraph = Paragraph::new(Spans::from(input_spans));
+                f.render_widget(input_paragraph, top_chunks[0]);
+                
+                // Info count
+                let matches_len = app.native_board_search.matched_indices.len();
+                let total_len = app.boards.items.len();
+                let info_text = format!("{}/{}", matches_len, total_len);
+                let info_paragraph = Paragraph::new(info_text).alignment(tui::layout::Alignment::Right).style(Style::default().fg(Color::Yellow));
+                // We render it on the same line as input, aligned right
+                f.render_widget(info_paragraph, top_chunks[1]);
+
+                // Render Matches
+                let start_idx = app.native_board_search.selected.saturating_sub((chunks[1].height as usize) / 2);
+                let end_idx = (start_idx + chunks[1].height as usize).min(matches_len);
+                
+                let visible_matches = app.native_board_search.matched_indices.iter().enumerate().skip(start_idx).take(end_idx - start_idx);
+                
+                let mut list_items = Vec::new();
+                for (i, (board_idx, char_indices)) in visible_matches {
+                    let board = &app.boards.items[*board_idx];
+                    let text = format!("/{}/ {}", board.board(), board.title());
+                    
+                    let mut text_spans = Vec::new();
+                    let is_selected = i == app.native_board_search.selected;
+                    let bg_color = if is_selected { Color::DarkGray } else { Color::Reset };
+                    
+                    if is_selected {
+                        text_spans.push(Span::styled("> ", Style::default().fg(Color::Magenta).bg(bg_color)));
+                    } else {
+                        text_spans.push(Span::styled("  ", Style::default().bg(bg_color)));
+                    }
+                    
+                    let highlight_set: HashSet<usize> = char_indices.iter().copied().collect();
+                    for (c_idx, c) in text.chars().enumerate() {
+                        let mut style = Style::default().bg(bg_color);
+                        if highlight_set.contains(&c_idx) {
+                            style = style.fg(Color::Magenta);
+                        }
+                        text_spans.push(Span::styled(c.to_string(), style));
+                    }
+                    
+                    // Pad with spaces for the background bar to extend
+                    if is_selected {
+                        let padding = chunks[1].width.saturating_sub(text.chars().count() as u16 + 2);
+                        text_spans.push(Span::styled(" ".repeat(padding as usize), Style::default().bg(bg_color)));
+                    }
+
+                    list_items.push(ListItem::new(Spans::from(text_spans)));
+                }
+
+                let list = List::new(list_items);
+                f.render_widget(list, chunks[1]);
+            }
+
             *last_layout_chunk_1 = chunks[1];
             *last_layout_chunk_2 = chunks[2];
 }

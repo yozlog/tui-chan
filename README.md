@@ -50,6 +50,10 @@ Settings can be configured in `~/.config/tui-chan/settings.conf`
 
 - `board_line_numbers`: Enable/disable line numbers in the board list (`true` or `false`). Defaults to `false`.
 - `board_relative_line_numbers`: Enable/disable relative line numbers in the board list (`true` or `false`). Evaluated only if `board_line_numbers` is set to `true`. Defaults to `false`.
+- `fzf_board_search`: Enable/disable fuzzy search for boards (`true` or `false`). Defaults to `false`.
+- `board_search_backend`: Backend used for the board search feature (`native` or `external`). Defaults to `native`.
+  - `native` (Default): Uses the built-in, seamlessly integrated TUI fuzzy finder.
+  - `external`: Spawns an external `fzf` process. **Note: requires the `fzf` CLI tool to be installed on your system.**
 
 ## Controls
 
@@ -67,6 +71,7 @@ Use `d` to open board or thread and `a` to return to the previous panel.
 | Jump to top                                          | `g` (press twice, e.g. `gg`)  |
 | Jump to bottom                                       | `G`                           |
 | Toggle image previews                                | `i`                           |
+| Search boards (requires `fzf_board_search=true` in `settings.conf`) | `f`                           |
 | Toggle help bar                                      | `h`                           |
 | Next page                                            | `p`                           |
 | Previous page                                        | control + `p`                 |

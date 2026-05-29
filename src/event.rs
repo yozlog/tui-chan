@@ -27,6 +27,7 @@ pub enum Key {
 pub(crate) struct Events {
     rx: mpsc::Receiver<Event<Key>>,
     tx: mpsc::Sender<Event<Key>>,
+    paused: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub(crate) enum Event<I> {
@@ -41,11 +42,17 @@ impl Events {
 
     fn with_config(config: Config) -> Events {
         let (tx, rx) = mpsc::channel();
+        let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let paused_clone = paused.clone();
 
         let _input_handle = {
             let tx = tx.clone();
             thread::spawn(move || {
                 loop {
+                    if paused_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        thread::sleep(Duration::from_millis(50));
+                        continue;
+                    }
                     if let Ok(true) = crossterm::event::poll(Duration::from_millis(50)) {
                         if let Ok(crossterm::event::Event::Key(key_event)) = crossterm::event::read() {
                             if key_event.kind == crossterm::event::KeyEventKind::Press {
@@ -77,6 +84,7 @@ impl Events {
         Events {
             rx,
             tx,
+            paused,
         }
     }
 
@@ -88,7 +96,13 @@ impl Events {
         self.rx.recv()
     }
 
+    pub(crate) fn pause(&self) {
+        self.paused.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 
+    pub(crate) fn resume(&self) {
+        self.paused.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
