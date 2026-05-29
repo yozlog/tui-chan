@@ -111,6 +111,7 @@ fn main() -> Result<(), io::Error> {
     let mut last_image_url: Option<String> = None;
     let mut vim_prefix: u32 = 0;
     let mut has_vim_prefix = false;
+    let mut has_top_prefix = false;
 
     loop {
         let scr_share = app.calc_screen_share();
@@ -296,6 +297,14 @@ fn main() -> Result<(), io::Error> {
             }
         }
 
+        if let Event::Input(input) = event {
+            if input == keybinds.top && !has_top_prefix {
+                has_top_prefix = true;
+                continue;
+            }
+            has_top_prefix = false;
+        }
+
         match event {
             Event::Input(mut input) => {
                 // Normalize standard terminal CR/LF characters (which are sent by Ctrl+j/Ctrl+m)
@@ -346,6 +355,12 @@ fn main() -> Result<(), io::Error> {
                     }
                     _ if input == keybinds.quick_up => {
                         app.advance(&selected_field, -5 * count);
+                    }
+                    _ if input == keybinds.top => {
+                        app.jump_top(&selected_field);
+                    }
+                    _ if input == keybinds.bottom => {
+                        app.jump_bottom(&selected_field);
                     }
                 _ if input == keybinds.fullscreen => {
                     match selected_field {

@@ -75,6 +75,8 @@ define_keybinds! {
     quick_down    Ctrl 's'  /// Move down quickly
     quick_left    Ctrl 'a'  /// Move left quickly
     quick_right   Ctrl 'd'  /// Move right quickly
+    top                'g'  /// Jump to top (press twice, e.g. if top=g, press gg)
+    bottom             'G'  /// Jump to bottom
     page_next          'p'  /// Next page
     page_previous Ctrl 'p'  /// Previous page
     copy_thread        'c'  /// Copy the direct url to the selected thread or post

@@ -64,6 +64,8 @@ Use `d` to open board or thread and `a` to return to the previous panel.
 |------------------------------------------------------|-------------------------------|
 | Move around                                          | `w`,`a`,`s`,`d`               |
 | Move quickly                                         | control + `w`,`a`,`s`,`d`     |
+| Jump to top                                          | `g` (press twice, e.g. `gg`)  |
+| Jump to bottom                                       | `G`                           |
 | Toggle image previews                                | `i`                           |
 | Toggle help bar                                      | `h`                           |
 | Next page                                            | `p`                           |

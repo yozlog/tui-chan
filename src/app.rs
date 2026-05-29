@@ -57,6 +57,8 @@ impl App {
             quick_down,
             quick_left,
             quick_right,
+            top,
+            bottom,
             page_next,
             page_previous,
             copy_thread,
@@ -85,8 +87,10 @@ impl App {
                 &copy_thread,
             ],
             &[
-                "copy thread/post url:",
-                &copy_thread,
+                "jump to top / bottom:",
+                &format!("{top}{top} / {bottom}"),
+                "",
+                "",
             ],
             &[
                 "toggle fullscreen:",
@@ -146,6 +150,22 @@ impl App {
             SelectedField::BoardList => self.boards.advance_by(steps),
             SelectedField::ThreadList => self.threads.advance_by(steps),
             SelectedField::Thread => self.thread.advance_by(steps),
+        }
+    }
+
+    pub(crate) fn jump_top(&mut self, field: &SelectedField) {
+        match field {
+            SelectedField::BoardList => self.boards.jump_top(),
+            SelectedField::ThreadList => self.threads.jump_top(),
+            SelectedField::Thread => self.thread.jump_top(),
+        }
+    }
+
+    pub(crate) fn jump_bottom(&mut self, field: &SelectedField) {
+        match field {
+            SelectedField::BoardList => self.boards.jump_bottom(),
+            SelectedField::ThreadList => self.threads.jump_bottom(),
+            SelectedField::Thread => self.thread.jump_bottom(),
         }
     }
 
@@ -372,5 +392,17 @@ impl<T> ItemList<T> {
 
     pub(crate) fn _unselect(&mut self) {
         self.state.select(None);
+    }
+
+    pub(crate) fn jump_top(&mut self) {
+        if !self.items.is_empty() {
+            self.state.select(Some(0));
+        }
+    }
+
+    pub(crate) fn jump_bottom(&mut self) {
+        if !self.items.is_empty() {
+            self.state.select(Some(self.items.len() - 1));
+        }
     }
 }
