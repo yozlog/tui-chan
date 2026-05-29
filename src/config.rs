@@ -16,15 +16,6 @@ impl ImageLayout {
             _ => ImageLayout::Inline,
         }
     }
-
-    #[allow(dead_code)]
-    pub fn to_str(&self) -> &'static str {
-        match self {
-            ImageLayout::Inline => "inline",
-            ImageLayout::Split => "split",
-            ImageLayout::Hybrid => "hybrid",
-        }
-    }
 }
 
 /// Image renderer protocol
@@ -41,15 +32,6 @@ impl ImageRenderer {
             "iterm2" => ImageRenderer::Iterm2,
             "kitty" => ImageRenderer::Kitty,
             _ => ImageRenderer::Unicode,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn to_str(&self) -> &'static str {
-        match self {
-            ImageRenderer::Unicode => "unicode",
-            ImageRenderer::Iterm2 => "iterm2",
-            ImageRenderer::Kitty => "kitty",
         }
     }
 }

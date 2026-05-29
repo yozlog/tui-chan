@@ -1,17 +1,32 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 use std::time::Duration;
-use std::{io, thread};
+use std::thread;
 
-use termion::event::Key;
-use termion::input::TermRead;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Key {
+    Char(char),
+    Ctrl(char),
+    Alt(char),
+    Backspace,
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    BackTab,
+    Delete,
+    Insert,
+    Esc,
+    F(u8),
+    Null,
+}
 
 pub(crate) struct Events {
     rx: mpsc::Receiver<Event<Key>>,
     tx: mpsc::Sender<Event<Key>>,
-    _input_handle: thread::JoinHandle<()>,
-    _ignore_exit_key: Arc<AtomicBool>,
-    _tick_handle: thread::JoinHandle<()>,
 }
 
 pub(crate) enum Event<I> {
@@ -26,25 +41,30 @@ impl Events {
 
     fn with_config(config: Config) -> Events {
         let (tx, rx) = mpsc::channel();
-        let ignore_exit_key = Arc::new(AtomicBool::new(false));
-        let input_handle = {
+
+        let _input_handle = {
             let tx = tx.clone();
-            let ignore_exit_key = ignore_exit_key.clone();
             thread::spawn(move || {
-                let stdin = io::stdin();
-                for key in stdin.keys().flatten() {
-                    if let Err(err) = tx.send(Event::Input(key)) {
-                        eprintln!("{}", err);
-                        return;
-                    }
-                    if !ignore_exit_key.load(Ordering::Relaxed) && key == config.exit_key {
-                        return;
+                loop {
+                    if let Ok(true) = crossterm::event::poll(Duration::from_millis(50)) {
+                        if let Ok(crossterm::event::Event::Key(key_event)) = crossterm::event::read() {
+                            if key_event.kind == crossterm::event::KeyEventKind::Press {
+                                if let Some(key) = to_custom_key(key_event) {
+                                    if tx.send(Event::Input(key)).is_err() {
+                                        return;
+                                    }
+                                    if key == config.exit_key {
+                                        return;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             })
         };
 
-        let tick_handle = {
+        let _tick_handle = {
             let tx = tx.clone();
             thread::spawn(move || loop {
                 if tx.send(Event::Tick).is_err() {
@@ -57,9 +77,6 @@ impl Events {
         Events {
             rx,
             tx,
-            _ignore_exit_key: ignore_exit_key,
-            _input_handle: input_handle,
-            _tick_handle: tick_handle,
         }
     }
 
@@ -71,13 +88,7 @@ impl Events {
         self.rx.recv()
     }
 
-    pub fn _disable_exit_key(&mut self) {
-        self._ignore_exit_key.store(true, Ordering::Relaxed);
-    }
 
-    pub fn _enable_exit_key(&mut self) {
-        self._ignore_exit_key.store(false, Ordering::Relaxed);
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -92,5 +103,42 @@ impl Default for Config {
             exit_key: Key::Char('q'),
             tick_rate: Duration::from_millis(250),
         }
+    }
+}
+
+fn to_custom_key(event: crossterm::event::KeyEvent) -> Option<Key> {
+    use crossterm::event::{KeyCode, KeyModifiers};
+
+    let is_ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
+    let is_alt = event.modifiers.contains(KeyModifiers::ALT);
+
+    match event.code {
+        KeyCode::Char(c) => {
+            if is_ctrl {
+                Some(Key::Ctrl(c))
+            } else if is_alt {
+                Some(Key::Alt(c))
+            } else {
+                Some(Key::Char(c))
+            }
+        }
+        KeyCode::Backspace => Some(Key::Backspace),
+        KeyCode::Left => Some(Key::Left),
+        KeyCode::Right => Some(Key::Right),
+        KeyCode::Up => Some(Key::Up),
+        KeyCode::Down => Some(Key::Down),
+        KeyCode::Home => Some(Key::Home),
+        KeyCode::End => Some(Key::End),
+        KeyCode::PageUp => Some(Key::PageUp),
+        KeyCode::PageDown => Some(Key::PageDown),
+        KeyCode::BackTab => Some(Key::BackTab),
+        KeyCode::Delete => Some(Key::Delete),
+        KeyCode::Insert => Some(Key::Insert),
+        KeyCode::Esc => Some(Key::Esc),
+        KeyCode::F(num) => Some(Key::F(num)),
+        KeyCode::Null => Some(Key::Null),
+        KeyCode::Enter => Some(Key::Char('\n')),
+        KeyCode::Tab => Some(Key::Char('\t')),
+        _ => None,
     }
 }

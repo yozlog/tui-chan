@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::time::{Duration, UNIX_EPOCH};
 
 use chrono::{DateTime, Utc};
@@ -5,15 +7,13 @@ use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans, Text};
 use tui::widgets::ListItem;
-use voca_rs::strip;
+
 
 use crate::model::ThreadPost;
 use crate::image_cache::{ImageCache, ImageStatus};
 use crate::client::api::ContentUrlProvider;
 
-pub(crate) fn format_default(str: &str) -> String {
-    format!(" {}", str)
-}
+
 
 pub(crate) fn format_html(str: &str) -> String {
     htmlescape::decode_html(str).unwrap()
@@ -97,11 +97,8 @@ fn format_post<'a>(
     let url = if render_images && post.tim().is_some() && post.ext().is_some() {
         Some(url_provider.url_file(
             board,
-            format!(
-                "{}{}",
-                post.tim().as_ref().unwrap(),
-                post.ext().as_ref().unwrap()
-            ),
+            post.tim().unwrap(),
+            post.ext().as_ref().unwrap(),
         ))
     } else {
         None
@@ -134,7 +131,7 @@ fn format_post<'a>(
 
     if !post.sub().is_empty() {
         header.push(Span::styled(
-            format_default(&htmlescape::decode_html(post.sub()).unwrap()),
+            format!(" {}", htmlescape::decode_html(post.sub()).unwrap()),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ));
     }
@@ -151,27 +148,27 @@ fn format_post<'a>(
     ));
 
     header.push(Span::styled(
-        format_default(&no),
+        format!(" {}", no),
         Style::default().fg(Color::Yellow),
     ));
 
     if post.sticky() == 1 {
-        header.push(Span::styled(format_default("📌"), Style::default()));
+        header.push(Span::styled(" 📌", Style::default()));
     }
 
     if post.closed() == 1 {
-        header.push(Span::styled(format_default("🔓"), Style::default()));
+        header.push(Span::styled(" 🔓", Style::default()));
     }
 
     text_lines.push(Spans::from(header));
 
     if post.filename().is_some() && post.ext().is_some() {
         text_lines.push(Spans::from(Span::styled(
-            format_default(&format!(
-                "{}{}",
+            format!(
+                " {}{}",
                 post.filename().as_ref().unwrap(),
                 post.ext().as_ref().unwrap()
-            )),
+            ),
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::ITALIC),
@@ -189,7 +186,7 @@ fn format_post<'a>(
 
     if short {
         text_lines.push(Spans::from(Span::styled(
-            format_default(&format!("{} Replies", post.replies())),
+            format!(" {} Replies", post.replies()),
             Style::default()
                 .fg(Color::Magenta)
                 .add_modifier(Modifier::ITALIC),
@@ -326,6 +323,21 @@ fn format_post<'a>(
     }
 }
 
+fn strip_tags(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_tag = false;
+    for c in input.chars() {
+        if c == '<' {
+            in_tag = true;
+        } else if c == '>' && in_tag {
+            in_tag = false;
+        } else if !in_tag {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Spans<'_>> {
     let string = htmlescape::decode_html(string).unwrap();
     // Normalize various HTML break tags and carriage returns to standard newlines
@@ -345,7 +357,7 @@ fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<
     let mut i = 0;
 
     'line_loop: for line in lines {
-        let line = strip::strip_tags(line);
+        let line = strip_tags(line);
         let line_type = LineType::from_line(&line);
 
         let mut iter = line.chars();
@@ -370,16 +382,17 @@ fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<
 
             if i >= line_limit {
                 spans.push(Spans::from(vec![
-                    Span::styled(format_default(cut_line(&line, pos, len)), line_type.style()),
+                    Span::raw(" "),
+                    Span::styled(cut_line(&line, pos, len).to_string(), line_type.style()),
                     Span::styled(CUT_MSG, Style::default().fg(Color::Magenta)),
                 ]));
                 break 'line_loop;
             }
 
-            spans.push(Spans::from(Span::styled(
-                format_default(&line[pos..pos + len]),
-                line_type.style(),
-            )));
+            spans.push(Spans::from(vec![
+                Span::raw(" "),
+                Span::styled(line[pos..pos + len].to_string(), line_type.style())
+            ]));
 
             pos += len;
             i += 1;
@@ -459,10 +472,6 @@ mod tests {
         assert_eq!(format_time(1717810439), "06/08/24(Sat)01:33:59");
     }
 
-    #[test]
-    fn test_format_default() {
-        assert_eq!(format_default("string"), " string");
-    }
 
     #[test]
     fn test_format_post_contents() {
@@ -473,20 +482,21 @@ mod tests {
 
         // untruncated post formatting
         assert_eq!(format_post_contents(POST, 100, 5), vec![
-            Spans::from(" Natus est Schubert Himmelpfortgrund in vico Alsergrund Vindobonae die 31 Ianuarii 1797. Pater, Franc"),
-            Spans::from(" iscus Theodorus Schubert, filius pagani Moraviani, magister scholae paroechialis; mater, Elisabeth ("),
-            Spans::from(" Vietz), filia artificis claustrarii Silesici fuit, quae ante nuptias ut ancilla in familia Vindobone"),
-            Spans::from(" nsi laboraverat."),
+            Spans::from(vec![Span::raw(" "), Span::raw("Natus est Schubert Himmelpfortgrund in vico Alsergrund Vindobonae die 31 Ianuarii 1797. Pater, Franc")]),
+            Spans::from(vec![Span::raw(" "), Span::raw("iscus Theodorus Schubert, filius pagani Moraviani, magister scholae paroechialis; mater, Elisabeth (")]),
+            Spans::from(vec![Span::raw(" "), Span::raw("Vietz), filia artificis claustrarii Silesici fuit, quae ante nuptias ut ancilla in familia Vindobone")]),
+            Spans::from(vec![Span::raw(" "), Span::raw("nsi laboraverat.")]),
         ]);
 
         // truncated post formatting
         assert_eq!(
             format_post_contents(POST, 50, 2),
             vec![
-                Spans::from(" Natus est Schubert Himmelpfortgrund in vico Alserg"),
-                Spans::from(" rund Vindobonae die 31 Ianuarii 1797. Pater, Franc"),
+                Spans::from(vec![Span::raw(" "), Span::raw("Natus est Schubert Himmelpfortgrund in vico Alserg")]),
+                Spans::from(vec![Span::raw(" "), Span::raw("rund Vindobonae die 31 Ianuarii 1797. Pater, Franc")]),
                 Spans::from(vec![
-                    Span::from(" iscus Theodorus Schubert, filius pagani Morav"),
+                    Span::raw(" "),
+                    Span::raw("iscus Theodorus Schubert, filius pagani Morav"),
                     Span::styled("[...]", Style::default().fg(Color::Magenta))
                 ]),
             ]

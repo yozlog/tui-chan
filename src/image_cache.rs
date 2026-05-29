@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use tui::text::Spans;
 use tokio::runtime::Handle;
 use image::GenericImageView;
-use termion::event::Key;
+use crate::event::Key;
 use crate::event::Event;
 
 /// Pre-rendered image spans and Base64 encoded payload for high-res protocols
@@ -38,17 +38,20 @@ pub struct ImageCache {
     tokio_handle: Handle,
     /// Channel sender to trigger TUI loop refresh when downloads complete
     tx: mpsc::Sender<Event<Key>>,
+    /// Shared HTTP client for connection pooling
+    client: reqwest::Client,
 }
 
 impl ImageCache {
     /// Create a new `ImageCache` using a Tokio runtime handle and event sender
-    pub fn new(tokio_handle: Handle, tx: mpsc::Sender<Event<Key>>) -> Self {
+    pub fn new(tokio_handle: Handle, tx: mpsc::Sender<Event<Key>>, client: reqwest::Client) -> Self {
         ImageCache {
             cache: Arc::new(Mutex::new(HashMap::new())),
             downloading: Arc::new(Mutex::new(HashSet::new())),
             failed: Arc::new(Mutex::new(HashSet::new())),
             tokio_handle,
             tx,
+            client,
         }
     }
 
@@ -93,12 +96,13 @@ impl ImageCache {
         let downloading_clone = self.downloading.clone();
         let failed_clone = self.failed.clone();
         let tx_clone = self.tx.clone();
+        let client_clone = self.client.clone();
 
         // Spawn background asynchronous download and rendering task
         self.tokio_handle.spawn(async move {
             let result = async {
                 // Fetch image bytes
-                let response = reqwest::get(&url_clone).await?;
+                let response = client_clone.get(&url_clone).send().await?;
                 let bytes = response.bytes().await?;
                 
                 // Decode image

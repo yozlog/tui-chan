@@ -1,14 +1,14 @@
-use crate::format::format_html;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Board {
     board: String,
     title: String,
+    #[serde(default)]
     meta_description: String,
-    per_page: isize,
+    #[serde(default)]
     pages: isize,
-    bump_limit: isize,
 }
 
 impl Board {
@@ -24,20 +24,8 @@ impl Board {
         &self.meta_description
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn per_page(&self) -> isize {
-        self.per_page
-    }
 
-    #[allow(dead_code)]
-    pub(crate) fn pages(&self) -> isize {
-        self.pages
-    }
 
-    #[allow(dead_code)]
-    pub(crate) fn bump_limit(&self) -> isize {
-        self.bump_limit
-    }
 }
 
 pub struct ThreadList {
@@ -80,7 +68,7 @@ impl ThreadList {
     }
 
     pub(crate) fn set_description(&mut self, desc: &str) {
-        self.description = format_html(desc);
+        self.description = crate::format::format_html(desc);
     }
 
     pub(crate) fn description(&self) -> &str {
@@ -104,11 +92,7 @@ pub struct ThreadPost {
     #[serde(default)]
     no: usize,
     #[serde(default)]
-    now: String,
-    #[serde(default)]
     time: u64,
-    #[serde(default)]
-    id: String,
     #[serde(default)]
     name: String,
     #[serde(default)]
@@ -174,13 +158,4 @@ impl ThreadPost {
         self.tim
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn now(&self) -> &str {
-        &self.now
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn id(&self) -> &str {
-        &self.id
-    }
 }

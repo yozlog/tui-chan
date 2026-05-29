@@ -1,4 +1,4 @@
-use termion::event::Key;
+use crate::event::Key;
 
 /// Parse (deserialize) keybind string as `termion::event::Key`.
 ///

@@ -7,9 +7,9 @@ use crate::model::{Board, Thread, ThreadPost};
 use crate::style::SelectedField;
 
 pub(crate) struct App {
-    pub(crate) boards: ItemLIst<Board>,
-    pub(crate) threads: ItemLIst<Thread>,
-    pub(crate) thread: ItemLIst<ThreadPost>,
+    pub(crate) boards: ItemList<Board>,
+    pub(crate) threads: ItemList<Thread>,
+    pub(crate) thread: ItemList<ThreadPost>,
     shown_state: ShownState,
     help_bar: HelpBar,
 }
@@ -85,6 +85,10 @@ impl App {
                 &copy_thread,
             ],
             &[
+                "copy thread/post url:",
+                &copy_thread,
+            ],
+            &[
                 "toggle fullscreen:",
                 &fullscreen,
                 "copy media url:",
@@ -111,9 +115,9 @@ impl App {
         );
 
         Self {
-            boards: ItemLIst::new(boards),
-            threads: ItemLIst::new(threads),
-            thread: ItemLIst::new(thread),
+            boards: ItemList::new(boards),
+            threads: ItemList::new(threads),
+            thread: ItemList::new(thread),
             shown_state: ShownState {
                 board_list: false,
                 thread_list: false,
@@ -128,27 +132,21 @@ impl App {
     }
 
     pub(crate) fn fill_threads(&mut self, threads: Vec<Thread>) {
-        self.threads = ItemLIst::new(threads);
+        self.threads = ItemList::new(threads);
     }
 
     pub(crate) fn fill_thread(&mut self, thread: Vec<ThreadPost>) {
-        self.thread = ItemLIst::new(thread);
+        self.thread = ItemList::new(thread);
     }
 
     pub(crate) fn advance_idly(&self) {}
 
     pub(crate) fn advance(&mut self, selected_field: &SelectedField, steps: isize) {
         match selected_field {
-            SelectedField::BoardList => {
-                self.boards.advance_by(steps);
-            }
-            SelectedField::ThreadList => {
-                self.threads.advance_by(steps);
-            }
-            SelectedField::Thread => {
-                self.thread.advance_by(steps);
-            }
-        };
+            SelectedField::BoardList => self.boards.advance_by(steps),
+            SelectedField::ThreadList => self.threads.advance_by(steps),
+            SelectedField::Thread => self.thread.advance_by(steps),
+        }
     }
 
     pub(crate) fn calc_screen_share(&self) -> ScreenShare {
@@ -216,16 +214,6 @@ impl App {
         self.shown_state.thread_list ^= true;
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn toggle_shown_thread(&mut self) {
-        self.shown_state.thread ^= true;
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn shown_board_list(&mut self) -> bool {
-        self.shown_state.board_list
-    }
-
     pub(crate) fn shown_thread_list(&mut self) -> bool {
         self.shown_state.thread_list
     }
@@ -285,11 +273,8 @@ impl App {
 
         let url = url_provider.url_file(
             self.selected_board().board(),
-            format!(
-                "{}{}",
-                post.tim().as_ref().unwrap(),
-                post.ext().as_ref().unwrap()
-            ),
+            post.tim().unwrap(),
+            post.ext().as_ref().unwrap(),
         );
 
         Some(url)
@@ -331,7 +316,7 @@ struct ShownState {
     thread: bool,
 }
 
-pub(crate) struct ItemLIst<T> {
+pub(crate) struct ItemList<T> {
     pub(crate) state: ListState,
     pub(crate) items: Vec<T>,
 }
@@ -360,9 +345,9 @@ impl HelpBar {
     }
 }
 
-impl<T> ItemLIst<T> {
-    pub(crate) fn new(items: Vec<T>) -> ItemLIst<T> {
-        ItemLIst {
+impl<T> ItemList<T> {
+    pub(crate) fn new(items: Vec<T>) -> ItemList<T> {
+        ItemList {
             state: ListState::default(),
             items,
         }

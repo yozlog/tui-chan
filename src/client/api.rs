@@ -13,7 +13,7 @@ pub(crate) trait ContentUrlProvider {
 
     fn url_thread_post(&self, board: &str, no: u64, post_no: u64) -> String;
 
-    fn url_file(&self, board: &str, filename: String) -> String;
+    fn url_file(&self, board: &str, tim: u64, ext: &str) -> String;
 }
 
 pub(crate) trait ChannelProvider: ContentUrlProvider + ApiUrlProvider {
@@ -58,8 +58,8 @@ impl ContentUrlProvider for Api4chan {
         format!("{}/{}/thread/{}#p{}", Self::BASE_URL, board, no, post_no)
     }
 
-    fn url_file(&self, board: &str, filename: String) -> String {
-        format!("{}/{}/{}", Self::BASE_MEDIA_URL, board, filename)
+    fn url_file(&self, board: &str, tim: u64, ext: &str) -> String {
+        format!("{}/{}/{}{}", Self::BASE_MEDIA_URL, board, tim, ext)
     }
 }
 

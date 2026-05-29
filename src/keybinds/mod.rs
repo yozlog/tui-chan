@@ -5,7 +5,7 @@ pub use self::file::read_or_create_keybinds_file;
 pub use self::key::{display_key, ParseErrorKind};
 
 use std::collections::HashMap;
-use termion::event::Key;
+use crate::event::Key;
 
 use self::key::parse_keybind;
 
