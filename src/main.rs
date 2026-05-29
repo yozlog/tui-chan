@@ -49,7 +49,7 @@ fn main() -> Result<(), io::Error> {
     let keybinds = Keybinds::parse_from_file(&keybinds).expect("Failed to parse keybinds file");
 
     // Load settings from settings.conf file
-    let config = read_or_create_config_file().expect("Failed to read config file");
+    let mut config = read_or_create_config_file().expect("Failed to read config file");
 
 
     let stdout = io::stdout().into_raw_mode()?;
@@ -915,6 +915,61 @@ fn main() -> Result<(), io::Error> {
                         }
                         _ => {}
                     };
+                }
+                _ if input == keybinds.toggle_image_previews => {
+                    if config.render_images {
+                        let term_prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
+                        let term_type = std::env::var("TERM").unwrap_or_default();
+                        let has_kitty_id = std::env::var("KITTY_WINDOW_ID").is_ok();
+                        
+                        let is_supported = match config.image_renderer {
+                            crate::config::ImageRenderer::Iterm2 => {
+                                term_prog == "iTerm.app" || term_prog == "WezTerm"
+                            }
+                            crate::config::ImageRenderer::Kitty => {
+                                term_prog == "Ghostty" 
+                                    || term_prog == "WezTerm" 
+                                    || term_prog == "iTerm.app" 
+                                    || has_kitty_id 
+                                    || term_type.contains("kitty")
+                            }
+                            _ => true,
+                        };
+
+                        if config.image_renderer == crate::config::ImageRenderer::Kitty && is_supported {
+                            print!("{}", crate::graphics::make_kitty_clear_sequence());
+                            let _ = io::Write::flush(&mut io::stdout());
+                        }
+
+                        if config.image_layout == crate::config::ImageLayout::Split || config.image_layout == crate::config::ImageLayout::Hybrid {
+                            let target_chunk = match selected_field {
+                                SelectedField::Thread => last_layout_chunk_2,
+                                _ => last_layout_chunk_1,
+                            };
+                            let split = Layout::default()
+                                .direction(Direction::Horizontal)
+                                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+                                .split(target_chunk);
+                            let prev_box = split[1];
+                            for r in 0..prev_box.height {
+                                print!("\x1b[{};{}H{}", prev_box.y + r + 1, prev_box.x + 1, " ".repeat(prev_box.width as usize));
+                            }
+                            let _ = io::Write::flush(&mut io::stdout());
+                        }
+
+                        if let Some(area) = last_image_area {
+                            if config.image_renderer == crate::config::ImageRenderer::Iterm2 && is_supported {
+                                for r in 0..area.height {
+                                    print!("\x1b[{};{}H{}", area.y + r + 1, area.x + 1, " ".repeat(area.width as usize));
+                                }
+                                let _ = io::Write::flush(&mut io::stdout());
+                            }
+                        }
+                    }
+
+                    config.render_images = !config.render_images;
+                    last_image_area = None;
+                    last_image_url = None;
                 }
                 _ => {}
             },

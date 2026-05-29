@@ -67,6 +67,7 @@ impl App {
             reload,
             help,
             quit,
+            toggle_image_previews,
         ];
 
         // Create table of keybinds
@@ -97,6 +98,7 @@ impl App {
             ],
             &["previous page:", &page_previous, "reload page:", &reload],
             &["quit:", &quit, "open media url in browser:", &open_media],
+            &["toggle images:", &toggle_image_previews, "", ""],
         ];
 
         let text = format!(

@@ -32,7 +32,7 @@ cargo uninstall
 
 Settings can be configured in `~/.config/tui-chan/settings.conf`
 
-- `render_images`: Master switch to enable terminal image previews (`true` or `false`). Defaults to `false`.
+- `render_images`: Master switch to enable terminal image previews (`true` or `false`). Defaults to `false`. This setting can be toggled at runtime using the `toggle_image_previews` keybind listed in the controls table below.
 - `image_layout`: Layout mode for image rendering. Evaluated only if `render_images` is set to `true`:
   - `inline` (Default): Displays 4chan-style left thumbnails inside the thread and post lists. Automatically collapses vertical space to fit the actual thumbnail size and uses a clean pointer (`▶ `) to highlight selections.
   - `split`: Splits the active panel horizontally and displays a larger image preview on the right (60% list, 40% preview).
@@ -55,6 +55,7 @@ Use `d` to open board or thread and `a` to return to the previous panel.
 |------------------------------------------------------|-------------------------------|
 | Move around                                          | `w`,`a`,`s`,`d`               |
 | Move quickly                                         | control + `w`,`a`,`s`,`d`     |
+| Toggle image previews                                | `i`                           |
 | Toggle help bar                                      | `h`                           |
 | Next page                                            | `p`                           |
 | Previous page                                        | control + `p`                 |

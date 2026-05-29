@@ -83,6 +83,7 @@ define_keybinds! {
     open_media    Ctrl 'o'  /// Open the selected post media (image/webm) in browser
     fullscreen         'z'  /// Toggle fullscreen for the selected panel
     reload             'r'  /// Reload page
+    toggle_image_previews 'i'  /// Toggle image previews
     help               'h'  /// Toggle help bar
     quit               'q'  /// Quit
     // Default `quit` keybind must also be updated in `event.rs`
